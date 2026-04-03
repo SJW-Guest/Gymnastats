@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClientInstance } from '@/lib/supabase'
 import { validateScore } from '@/types'
-import type { Event, DncReason } from '@/types'
+import type { Event as GymnasticsEvent, DncReason } from '@/types'
 
 // POST /api/scores — submit or update a score for one event
 export async function POST(req: NextRequest) {
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   const { meet_id, gymnast_id, event, score, dnc, dnc_reason } = body as {
     meet_id: string
     gymnast_id: string
-    event: Event
+    event: GymnasticsEvent
     score?: number
     dnc?: boolean
     dnc_reason?: DncReason
@@ -152,7 +152,7 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json()
   const { score_id, event, new_value, reason } = body as {
     score_id: string
-    event: Event
+    event: GymnasticsEvent
     new_value: number
     reason?: string
   }
