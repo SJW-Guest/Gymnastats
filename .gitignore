@@ -3,3 +3,4 @@ Files for Gymnastats.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
 *.xcworkspace
 *.xcuserstate
 *.xcshareddata
+node_modules/
