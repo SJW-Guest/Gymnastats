@@ -1,0 +1,40 @@
+'use client'
+import { useState } from 'react'
+import { createBrowserClient } from '@supabase/ssr'
+export default function LoginPage() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+  async function handleSignIn(e: React.FormEvent) {
+    e.preventDefault(); setLoading(true); setError('')
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) { setError(error.message); setLoading(false) }
+    else window.location.href = '/dashboard'
+  }
+  return (
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#0a0f1e',fontFamily:'Georgia,serif',padding:'1rem'}}>
+      <div style={{background:'#fff',borderRadius:'16px',padding:'2.5rem',width:'100%',maxWidth:'400px'}}>
+        <div style={{display:'flex',alignItems:'center',gap:'12px',marginBottom:'2rem'}}>
+          <div style={{width:'44px',height:'44px',borderRadius:'10px',background:'#0a0f1e',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'22px',fontWeight:'700'}}>G</div>
+          <div><div style={{fontSize:'18px',fontWeight:'700',color:'#0a0f1e'}}>Gymnastats</div><div style={{fontSize:'11px',color:'#888',textTransform:'uppercase',letterSpacing:'.05em'}}>MAGA Scoring Platform</div></div>
+        </div>
+        <h1 style={{fontSize:'24px',fontWeight:'700',color:'#0a0f1e',margin:'0 0 4px',letterSpacing:'-0.5px'}}>Welcome back</h1>
+        <p style={{fontSize:'14px',color:'#666',margin:'0 0 1.5rem'}}>Sign in to your account</p>
+        <form onSubmit={handleSignIn} style={{display:'flex',flexDirection:'column',gap:'1rem'}}>
+          <div style={{display:'flex',flexDirection:'column',gap:'5px'}}>
+            <label style={{fontSize:'13px',fontWeight:'600',color:'#333',fontFamily:'system-ui'}}>Email</label>
+            <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required style={{padding:'10px 12px',border:'1.5px solid #e0e0e0',borderRadius:'8px',fontSize:'15px',fontFamily:'system-ui',color:'#0a0f1e'}} />
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:'5px'}}>
+            <label style={{fontSize:'13px',fontWeight:'600',color:'#333',fontFamily:'system-ui'}}>Password</label>
+            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" required style={{padding:'10px 12px',border:'1.5px solid #e0e0e0',borderRadius:'8px',fontSize:'15px',fontFamily:'system-ui',color:'#0a0f1e'}} />
+          </div>
+          {error && <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:'6px',padding:'10px 12px',fontSize:'13px',color:'#dc2626',fontFamily:'system-ui'}}>{error}</div>}
+          <button type="submit" disabled={loading} style={{marginTop:'8px',padding:'12px',background:'#0a0f1e',color:'#fff',border:'none',borderRadius:'8px',fontSize:'15px',fontWeight:'600',cursor:'pointer',fontFamily:'system-ui'}}>{loading?'Signing in...':'Sign in'}</button>
+        </form>
+      </div>
+    </div>
+  )
+}
