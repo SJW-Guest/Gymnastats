@@ -1,268 +1,88 @@
 'use client'
+import { useEffect, useState } from 'react'
 
 export const dynamic = 'force-dynamic'
 
-import { useState } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+export default function DashboardPage() {
+  const [name, setName] = useState('')
+  const [role, setRole] = useState('')
+  const [meets, setMeets] = useState<Array<{id:string,name:string,meet_date:string,status:string}>>([])
+  const [loading, setLoading] = useState(true)
 
-export default function LoginPage() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [mode, setMode] = useState<'signin' | 'reset'>('signin')
-  const [resetSent, setResetSent] = useState(false)
-
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
-
-  async function handleSignIn(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      window.location.href = '/dashboard'
-    }
-  }
-
-  async function handleReset(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/update-password`,
-    })
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      setResetSent(true)
+  useEffect(() => {
+    async function load() {
+      try {
+        const { createBrowserClient } = await import('@supabase/ssr')
+        const supabase = createBrowserClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        )
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) { window.location.href = '/auth/login'; return }
+        const { data: prof } = await supabase.from('users').select('full_name,role').eq('id', user.id).single()
+        if (prof) { setName(prof.full_name); setRole(prof.role) }
+        const { data: m } = await supabase.from('meets').select('id,name,meet_date,status').order('meet_date',{ascending:false}).limit(5)
+        setMeets(m ?? [])
+      } catch { window.location.href = '/auth/login' }
       setLoading(false)
     }
+    load()
+  }, [])
+
+  async function signOut() {
+    const { createBrowserClient } = await import('@supabase/ssr')
+    const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+    await supabase.auth.signOut()
+    window.location.href = '/auth/login'
   }
+
+  if (loading) return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f8f9fb'}}><p style={{color:'#888',fontFamily:'system-ui'}}>Loading...</p></div>
+
+  const statusColor: Record<string,string> = {setup:'#f59e0b',active:'#10b981',finalized:'#6366f1',suspended:'#ef4444'}
+  const roleLabel: Record<string,string> = {maga_admin:'MAGA Administrator',club_staff:'Club Staff',parent:'Parent / Guardian'}
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
-        <div style={styles.logo}>
-          <div style={styles.logoMark}>G</div>
-          <div>
-            <div style={styles.logoName}>Gymnastats</div>
-            <div style={styles.logoSub}>MAGA Scoring Platform</div>
-          </div>
+    <div style={{minHeight:'100vh',background:'#f8f9fb',fontFamily:'system-ui,sans-serif'}}>
+      <nav style={{background:'#0a0f1e',padding:'0 2rem',height:'60px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+          <div style={{width:'32px',height:'32px',borderRadius:'8px',background:'#fff',color:'#0a0f1e',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'16px',fontWeight:'700',fontFamily:'Georgia,serif'}}>G</div>
+          <span style={{color:'#fff',fontWeight:'600',fontSize:'16px'}}>Gymnastats</span>
         </div>
-
-        {mode === 'signin' ? (
-          <>
-            <h1 style={styles.heading}>Welcome back</h1>
-            <p style={styles.subheading}>Sign in to your account</p>
-            <form onSubmit={handleSignIn} style={styles.form}>
-              <div style={styles.field}>
-                <label style={styles.label}>Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  required
-                  style={styles.input}
-                />
-              </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  style={styles.input}
-                />
-              </div>
-              {error && <div style={styles.error}>{error}</div>}
-              <button type="submit" disabled={loading} style={styles.btn}>
-                {loading ? 'Signing in...' : 'Sign in'}
-              </button>
-            </form>
-            <button
-              onClick={() => setMode('reset')}
-              style={styles.link}
-            >
-              Forgot your password?
-            </button>
-          </>
-        ) : (
-          <>
-            <h1 style={styles.heading}>Reset password</h1>
-            <p style={styles.subheading}>We&apos;ll send you a reset link</p>
-            {resetSent ? (
-              <div style={styles.success}>
-                Check your email for a password reset link.
-              </div>
-            ) : (
-              <form onSubmit={handleReset} style={styles.form}>
-                <div style={styles.field}>
-                  <label style={styles.label}>Email</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    required
-                    style={styles.input}
-                  />
+        <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+          <span style={{color:'#94a3b8',fontSize:'13px'}}>{name}</span>
+          <button onClick={signOut} style={{background:'none',border:'1px solid #334155',color:'#94a3b8',padding:'5px 12px',borderRadius:'6px',cursor:'pointer',fontSize:'13px'}}>Sign out</button>
+        </div>
+      </nav>
+      <main style={{maxWidth:'900px',margin:'0 auto',padding:'2rem 1rem'}}>
+        <h1 style={{fontSize:'28px',fontWeight:'700',color:'#0a0f1e',margin:'0 0 4px',letterSpacing:'-0.5px'}}>Dashboard</h1>
+        <p style={{fontSize:'13px',color:'#64748b',margin:'0 0 2rem'}}>{roleLabel[role] ?? role}</p>
+        <div style={{background:'#fff',borderRadius:'12px',border:'0.5px solid #e5e7eb',padding:'1.25rem',marginBottom:'1rem'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}}>
+            <h2 style={{fontSize:'16px',fontWeight:'600',color:'#0a0f1e',margin:0}}>Recent meets</h2>
+            <button style={{background:'#0a0f1e',color:'#fff',border:'none',borderRadius:'8px',padding:'7px 14px',fontSize:'13px',cursor:'pointer',fontWeight:500}}>+ New meet</button>
+          </div>
+          {meets.length === 0 ? (
+            <p style={{color:'#94a3b8',textAlign:'center' as const,padding:'2rem',fontSize:'14px'}}>No meets yet this season.</p>
+          ) : (
+            <div style={{display:'flex',flexDirection:'column' as const,gap:'8px'}}>
+              {meets.map(meet => (
+                <div key={meet.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 14px',background:'#f8f9fb',borderRadius:'8px',border:'0.5px solid #e5e7eb'}}>
+                  <div>
+                    <div style={{fontSize:'14px',fontWeight:600,color:'#0a0f1e',marginBottom:'2px'}}>{meet.name}</div>
+                    <div style={{fontSize:'12px',color:'#64748b'}}>{new Date(meet.meet_date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'})}</div>
+                  </div>
+                  <div style={{fontSize:'11px',fontWeight:600,padding:'3px 10px',borderRadius:'20px',background:`${statusColor[meet.status]}20`,color:statusColor[meet.status],border:`1px solid ${statusColor[meet.status]}40`,textTransform:'capitalize' as const}}>{meet.status}</div>
                 </div>
-                {error && <div style={styles.error}>{error}</div>}
-                <button type="submit" disabled={loading} style={styles.btn}>
-                  {loading ? 'Sending...' : 'Send reset link'}
-                </button>
-              </form>
-            )}
-            <button onClick={() => setMode('signin')} style={styles.link}>
-              Back to sign in
-            </button>
-          </>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px'}}>
+          {['Manage roster','Lineup manager','Score entry','Season standings'].map(label => (
+            <button key={label} style={{background:'#fff',border:'0.5px solid #e5e7eb',borderRadius:'12px',padding:'1.25rem',cursor:'pointer',textAlign:'left' as const,fontSize:'14px',fontWeight:500,color:'#0a0f1e'}}>{label}</button>
+          ))}
+        </div>
+      </main>
     </div>
   )
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: '#0a0f1e',
-    fontFamily: "'Georgia', serif",
-    padding: '1rem',
-  },
-  card: {
-    background: '#fff',
-    borderRadius: '16px',
-    padding: '2.5rem',
-    width: '100%',
-    maxWidth: '400px',
-    boxShadow: '0 25px 60px rgba(0,0,0,0.4)',
-  },
-  logo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    marginBottom: '2rem',
-  },
-  logoMark: {
-    width: '44px',
-    height: '44px',
-    borderRadius: '10px',
-    background: '#0a0f1e',
-    color: '#fff',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '22px',
-    fontWeight: '700',
-    fontFamily: 'Georgia, serif',
-  },
-  logoName: {
-    fontSize: '18px',
-    fontWeight: '700',
-    color: '#0a0f1e',
-    letterSpacing: '-0.3px',
-  },
-  logoSub: {
-    fontSize: '11px',
-    color: '#888',
-    letterSpacing: '0.05em',
-    textTransform: 'uppercase',
-  },
-  heading: {
-    fontSize: '24px',
-    fontWeight: '700',
-    color: '#0a0f1e',
-    margin: '0 0 4px',
-    letterSpacing: '-0.5px',
-  },
-  subheading: {
-    fontSize: '14px',
-    color: '#666',
-    margin: '0 0 1.5rem',
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '1rem',
-  },
-  field: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '5px',
-  },
-  label: {
-    fontSize: '13px',
-    fontWeight: '600',
-    color: '#333',
-    fontFamily: 'system-ui, sans-serif',
-  },
-  input: {
-    padding: '10px 12px',
-    border: '1.5px solid #e0e0e0',
-    borderRadius: '8px',
-    fontSize: '15px',
-    outline: 'none',
-    fontFamily: 'system-ui, sans-serif',
-    transition: 'border-color 0.15s',
-    color: '#0a0f1e',
-  },
-  btn: {
-    marginTop: '8px',
-    padding: '12px',
-    background: '#0a0f1e',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '15px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    fontFamily: 'system-ui, sans-serif',
-    transition: 'opacity 0.15s',
-  },
-  error: {
-    background: '#fef2f2',
-    border: '1px solid #fecaca',
-    borderRadius: '6px',
-    padding: '10px 12px',
-    fontSize: '13px',
-    color: '#dc2626',
-    fontFamily: 'system-ui, sans-serif',
-  },
-  success: {
-    background: '#f0fdf4',
-    border: '1px solid #bbf7d0',
-    borderRadius: '6px',
-    padding: '12px',
-    fontSize: '14px',
-    color: '#16a34a',
-    fontFamily: 'system-ui, sans-serif',
-    marginBottom: '1rem',
-  },
-  link: {
-    background: 'none',
-    border: 'none',
-    color: '#666',
-    fontSize: '13px',
-    cursor: 'pointer',
-    marginTop: '1rem',
-    textDecoration: 'underline',
-    display: 'block',
-    textAlign: 'center',
-    fontFamily: 'system-ui, sans-serif',
-  },
 }
