@@ -12,10 +12,10 @@ export type DncReason = 'injury' | 'illness' | 'other'
 export type DivisionGroup = 'Upper' | 'Lower'
 export type PaymentType = 'per_meet' | 'season'
 export type PaymentStatus = 'pending' | 'paid' | 'manual'
-export type Event = 'vault' | 'bars' | 'beam' | 'floor'
+export type GymnasticsEvent = 'vault' | 'bars' | 'beam' | 'floor'
 
 export const AGE_GROUPS: AgeGroup[] = ['Novice', 'Children', 'Junior', 'Senior']
-export const EVENTS: Event[] = ['vault', 'bars', 'beam', 'floor']
+export const EVENTS: GymnasticsEvent[] = ['vault', 'bars', 'beam', 'floor']
 export const DIVISION_GROUPS: DivisionGroup[] = ['Upper', 'Lower']
 
 // ============================================================
