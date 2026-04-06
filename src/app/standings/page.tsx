@@ -34,7 +34,7 @@ export default function StandingsPage() {
   const [standings, setStandings] = useState<StandingRow[]>([])
   const [meets, setMeets] = useState<Meet[]>([])
   const [loading, setLoading] = useState(true)
-  const [filterDiv, setFilterDiv] = useState<string>('all')
+  
   const [filterAge, setFilterAge] = useState<string>('all')
   const [view, setView] = useState<'aa' | 'vault' | 'bars' | 'beam' | 'floor'>('aa')
 
@@ -111,7 +111,6 @@ export default function StandingsPage() {
   const viewLabel: Record<string, string> = { aa: 'All-Around', vault: 'Vault', bars: 'Bars', beam: 'Beam', floor: 'Floor' }
 
   const filtered = standings
-    .filter(r => filterDiv === 'all' || r.division_group === filterDiv)
     .filter(r => filterAge === 'all' || r.age_group === filterAge)
     .sort((a, b) => {
       const av = a[scoreKey[view]] as number | null
