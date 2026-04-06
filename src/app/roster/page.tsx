@@ -44,7 +44,7 @@ export default function RosterPage() {
         supabase.from('gymnasts').select('id, first_name, last_name, age_group, current_team_id, teams(name)').eq('is_active', true).order('last_name'),
         supabase.from('teams').select('id, name, division_group').eq('is_active', true).order('name'),
       ])
-      setGymnasts((g ?? []) as Gymnast[])
+      setGymnasts((g ?? []) as unknown as Gymnast[])
       setTeams(t ?? [])
       if (t && t.length > 0) setForm(f => ({ ...f, current_team_id: t[0].id }))
       setLoading(false)
