@@ -166,7 +166,6 @@ export default function StandingsPage() {
             <span>#</span>
             <span>Gymnast</span>
             <span>Team</span>
-            <span>Division</span>
             <span>Age group</span>
             <span>Meets</span>
             <span style={{textAlign:'right'}}>{viewLabel[view]}</span>
@@ -179,7 +178,6 @@ export default function StandingsPage() {
                 <span style={{...s.rank, ...(r.rank === 1 ? s.goldRank : {})}}>{r.rank}</span>
                 <span style={s.gymnName}>{r.gymnast_name}</span>
                 <span style={s.cell}>{r.team_name}</span>
-                <span style={s.cell}>{r.division_group}</span>
                 <span style={s.cell}>{r.age_group}</span>
                 <span style={s.cell}>{r.meets_competed}</span>
                 <span style={{...s.score, ...(r.rank === 1 ? s.goldScore : {})}}>
@@ -215,8 +213,8 @@ const s: Record<string, React.CSSProperties> = {
   filters: { display: 'flex', gap: '8px' },
   select: { padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', color: '#0a0f1e', background: '#fff' },
   table: { background: '#fff', borderRadius: '12px', border: '0.5px solid #e5e7eb', overflow: 'hidden' },
-  tableHead: { display: 'grid', gridTemplateColumns: '40px 2fr 1.5fr 80px 100px 60px 80px', gap: '8px', padding: '10px 16px', background: '#f8f9fb', fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '0.5px solid #e5e7eb' },
-  tableRow: { display: 'grid', gridTemplateColumns: '40px 2fr 1.5fr 80px 100px 60px 80px', gap: '8px', padding: '12px 16px', borderBottom: '0.5px solid #f1f5f9', alignItems: 'center' },
+  tableHead: { display: 'grid', gridTemplateColumns: '40px 2fr 1.5fr 100px 60px 80px', gap: '8px', padding: '10px 16px', background: '#f8f9fb', fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '0.5px solid #e5e7eb' },
+  tableRow: { display: 'grid', gridTemplateColumns: '40px 2fr 1.5fr 100px 60px 80px', gap: '8px', padding: '12px 16px', borderBottom: '0.5px solid #f1f5f9', alignItems: 'center' },
   goldRow: { background: '#f0fdf4' },
   rank: { fontSize: '14px', fontWeight: 600, color: '#64748b' },
   goldRank: { color: '#16a34a' },
