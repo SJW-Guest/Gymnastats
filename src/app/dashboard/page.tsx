@@ -89,7 +89,7 @@ export default function DashboardPage() {
         <div style={s.section}>
           <div style={s.sectionHeader}>
             <h2 style={s.h2}>Recent meets</h2>
-            <button style={s.actionBtn}>+ New meet</button>
+            <button onClick={() => window.location.href = '/meet/new'} style={s.actionBtn}>+ New meet</button>
           </div>
           {meets.length === 0 ? (
             <p style={s.emptyText}>No meets yet this season.</p>

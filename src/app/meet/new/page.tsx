@@ -49,67 +49,6 @@ export default function NewMeetPage() {
     if (selectedTeams.length > 0) {
       const rows = selectedTeams.map(teamId => {
         let divGroup = null
-        if (useDivisions) { for (const div of divi
-
-
-exite
-exit
-cd ..
-kill
-stop 
-end
-cat > src/app/meet/new/page.tsx << 'ENDOFFILE'
-// @ts-nocheck
-'use client'
-import { useEffect, useState } from 'react'
-export const dynamic = 'force-dynamic'
-export default function NewMeetPage() {
-  const [clubs, setClubs] = useState([])
-  const [teams, setTeams] = useState([])
-  const [seasons, setSeasons] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [step, setStep] = useState(1)
-  const [meetId, setMeetId] = useState(null)
-  const [form, setForm] = useState({ name:'', meet_date:'', location:'', host_club_id:'', season_id:'', results_visibility:'after_finalized', num_judges:1 })
-  const [selectedTeams, setSelectedTeams] = useState([])
-  const [useDivisions, setUseDivisions] = useState(true)
-  const [divisions, setDivisions] = useState([{name:'Upper',teams:[]},{name:'Lower',teams:[]}])
-  useEffect(() => {
-    async function load() {
-      const { createBrowserClient } = await import('@supabase/ssr')
-      const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { window.location.href = '/auth/login'; return }
-      const [{ data: c }, { data: t }, { data: s }] = await Promise.all([
-        supabase.from('clubs').select('id, name').eq('is_active', true).order('name'),
-        supabase.from('teams').select('id, name, club_id').eq('is_active', true).order('name'),
-        supabase.from('seasons').select('id, name').order('start_date', { ascending: false }).limit(5),
-      ])
-      setClubs(c ?? [])
-      setTeams(t ?? [])
-      setSeasons(s ?? [])
-      if (c?.length > 0) setForm(f => ({...f, host_club_id: c[0].id}))
-      if (s?.length > 0) setForm(f => ({...f, season_id: s[0].id}))
-      setLoading(false)
-    }
-    load()
-  }, [])
-  async function createMeet(e) {
-    e.preventDefault(); setSaving(true)
-    const { createBrowserClient } = await import('@supabase/ssr')
-    const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
-    const { data, error } = await supabase.from('meets').insert({ name:form.name, meet_date:form.meet_date, location:form.location, host_club_id:form.host_club_id, season_id:form.season_id, results_visibility:form.results_visibility, num_judges:form.num_judges, status:'setup' }).select('id').single()
-    if (!error && data) { setMeetId(data.id); setStep(2) }
-    setSaving(false)
-  }
-  async function saveTeamsAndDivisions() {
-    setSaving(true)
-    const { createBrowserClient } = await import('@supabase/ssr')
-    const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
-    if (selectedTeams.length > 0) {
-      const rows = selectedTeams.map(teamId => {
-        let divGroup = null
         if (useDivisions) { for (const div of divisions) { if (div.teams.includes(teamId)) { divGroup = div.name; break } } }
         return { meet_id: meetId, team_id: teamId, division_group: divGroup }
       })
