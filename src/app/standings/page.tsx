@@ -154,11 +154,6 @@ export default function StandingsPage() {
             ))}
           </div>
           <div style={s.filters}>
-            <select value={filterDiv} onChange={e => setFilterDiv(e.target.value)} style={s.select}>
-              <option value="all">All divisions</option>
-              <option value="Upper">Upper</option>
-              <option value="Lower">Lower</option>
-            </select>
             <select value={filterAge} onChange={e => setFilterAge(e.target.value)} style={s.select}>
               <option value="all">All age groups</option>
               {(['Novice','Children','Junior','Senior'] as const).map(ag => <option key={ag} value={ag}>{ag}</option>)}
