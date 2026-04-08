@@ -1,6 +1,7 @@
-// v3 - debug club redirect
+// v4 - router.push redirect
 'use client'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,6 +12,7 @@ const ROLE_HOME: Record<string, string> = {
 }
 
 export default function LoginPage() {
+  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -20,60 +22,27 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
-
     try {
       const { createBrowserClient } = await import('@supabase/ssr')
       const supabase = createBrowserClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       )
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password })
+      if (authError) { setError(authError.message); setLoading(false); return }
+      if (!authData?.user) { setError('Sign in failed.'); setLoading(false); return }
 
-      // Step 1: Sign in
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (authError) {
-        console.error('[login] Auth error:', authError)
-        setError(authError.message)
-        setLoading(false)
-        return
-      }
-
-      if (!authData?.user) {
-        console.error('[login] No user returned')
-        setError('Sign in failed. Please try again.')
-        setLoading(false)
-        return
-      }
-
-      console.log('[login] Auth success, user id:', authData.user.id)
-
-      // Step 2: Look up role
-      const { data: profile, error: profileError } = await supabase
+      const { data: profile } = await supabase
         .from('users')
-        .select('role, club_id')
+        .select('role')
         .eq('id', authData.user.id)
         .single()
 
-      if (profileError) {
-        console.error('[login] Profile error:', profileError)
-        // Fall back to dashboard if role lookup fails
-        window.location.href = '/dashboard'
-        return
-      }
-
-      console.log('[login] Profile:', profile)
-
       const role = profile?.role as string | undefined
       const destination = role ? (ROLE_HOME[role] ?? '/dashboard') : '/dashboard'
+      router.push(destination)
 
-      console.log('[login] Redirecting to:', destination)
-      window.location.href = destination
-
-    } catch (err) {
-      console.error('[login] Unexpected error:', err)
+    } catch {
       setError('Something went wrong. Please try again.')
       setLoading(false)
     }
@@ -94,38 +63,14 @@ export default function LoginPage() {
         <form onSubmit={handleSignIn} style={{display:'flex',flexDirection:'column' as const,gap:'1rem'}}>
           <div style={{display:'flex',flexDirection:'column' as const,gap:'5px'}}>
             <label style={{fontSize:'13px',fontWeight:600,color:'#333'}}>Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              required
-              style={{padding:'10px 12px',border:'1.5px solid #e0e0e0',borderRadius:'8px',fontSize:'15px',color:'#0a0f1e',outline:'none'}}
-            />
+            <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required style={{padding:'10px 12px',border:'1.5px solid #e0e0e0',borderRadius:'8px',fontSize:'15px',color:'#0a0f1e',outline:'none'}} />
           </div>
           <div style={{display:'flex',flexDirection:'column' as const,gap:'5px'}}>
             <label style={{fontSize:'13px',fontWeight:600,color:'#333'}}>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              style={{padding:'10px 12px',border:'1.5px solid #e0e0e0',borderRadius:'8px',fontSize:'15px',color:'#0a0f1e',outline:'none'}}
-            />
+            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" required style={{padding:'10px 12px',border:'1.5px solid #e0e0e0',borderRadius:'8px',fontSize:'15px',color:'#0a0f1e',outline:'none'}} />
           </div>
-          {error && (
-            <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:'6px',padding:'10px',fontSize:'13px',color:'#dc2626'}}>
-              {error}
-            </div>
-          )}
-          <button
-            type="submit"
-            disabled={loading}
-            style={{padding:'12px',background:'#0a0f1e',color:'#fff',border:'none',borderRadius:'8px',fontSize:'15px',fontWeight:600,cursor:'pointer'}}
-          >
-            {loading ? 'Signing in...' : 'Sign in'}
-          </button>
+          {error && <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:'6px',padding:'10px',fontSize:'13px',color:'#dc2626'}}>{error}</div>}
+          <button type="submit" disabled={loading} style={{padding:'12px',background:'#0a0f1e',color:'#fff',border:'none',borderRadius:'8px',fontSize:'15px',fontWeight:600,cursor:'pointer'}}>{loading ? 'Signing in...' : 'Sign in'}</button>
         </form>
       </div>
     </div>
