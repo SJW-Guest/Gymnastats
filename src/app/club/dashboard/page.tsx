@@ -2,44 +2,20 @@
 
 import { Suspense, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface Club {
-  id: string;
-  name: string;
-  city: string;
-  state: string;
-}
-
-interface Team {
-  id: string;
-  name: string;
-  level: string | null;
-  division_group: string | null;
-}
-
+interface Club { id: string; name: string; city: string; state: string; }
+interface Team { id: string; name: string; level: string | null; division_group: string | null; }
 interface Meet {
-  id: string;
-  name: string;
-  date: string;
-  status: string;
-  location: string;
-  perspective: 'hosting' | 'invited';
-  hostClub?: string;
-  teamsInvited: number;
-  teamsConfirmed: number;
-  hasScores: boolean;
+  id: string; name: string; date: string; status: string; location: string;
+  perspective: 'hosting' | 'invited'; hostClub?: string;
+  teamsInvited: number; teamsConfirmed: number; hasScores: boolean;
   teams?: { id: string; name: string; status: string }[];
 }
-
 interface DashboardData {
-  club: Club;
-  season: { id: string; name: string } | null;
+  club: Club; season: { id: string; name: string } | null;
   user: { id: string; name: string; role: string };
   stats: { gymnasts: number; teams: number; meets: number };
-  teams: Team[];
-  meets: Meet[];
+  teams: Team[]; meets: Meet[];
 }
 
 const STATUS_STYLES: Record<string, React.CSSProperties> = {
@@ -51,10 +27,10 @@ const STATUS_STYLES: Record<string, React.CSSProperties> = {
 };
 
 const QUICK_ACTIONS = [
-  { key: 'roster',    icon: '👥', title: 'Manage roster',    sub: 'Add and edit gymnasts',       href: '/roster' },
-  { key: 'lineup',    icon: '📋', title: 'Lineup manager',   sub: 'Set running order per meet',  href: '/lineup' },
-  { key: 'scores',    icon: '📊', title: 'Score entry',      sub: 'Enter event scores',          href: '/scores' },
-  { key: 'standings', icon: '🏆', title: 'Season standings', sub: 'Rankings across all meets',   href: '/standings' },
+  { key: 'roster',    icon: '👥', title: 'Manage roster',    sub: 'Add and edit gymnasts',      href: '/roster' },
+  { key: 'lineup',    icon: '📋', title: 'Lineup manager',   sub: 'Set running order per meet', href: '/lineup' },
+  { key: 'scores',    icon: '📊', title: 'Score entry',      sub: 'Enter event scores',         href: '/scores' },
+  { key: 'standings', icon: '🏆', title: 'Season standings', sub: 'Rankings across all meets',  href: '/standings' },
 ];
 
 function ClubDashboardInner() {
@@ -67,34 +43,10 @@ function ClubDashboardInner() {
   useEffect(() => {
     async function load() {
       try {
-        const supabase = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-        );
-
-        // Wait for session — retry up to 3 times with delay
-        let session = null;
-        for (let i = 0; i < 3; i++) {
-          const { data: { session: s } } = await supabase.auth.getSession();
-          if (s) { session = s; break; }
-          await new Promise(r => setTimeout(r, 500));
-        }
-
-        if (!session) {
-          router.push('/auth/login');
-          return;
-        }
-
-        const res = await fetch('/api/club/dashboard', {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-
-        if (res.status === 401) {
-          router.push('/auth/login');
-          return;
-        }
-
-        if (!res.ok) throw new Error('Failed to load dashboard');
+        // Same pattern as MAGA dashboard — just call the API, no session check needed
+        const res = await fetch('/api/club/dashboard');
+        if (res.status === 401) { router.push('/auth/login'); return; }
+        if (!res.ok) throw new Error('Failed to load');
         const json = await res.json();
         setData(json);
       } catch {
@@ -107,41 +59,23 @@ function ClubDashboardInner() {
   }, [router]);
 
   function formatDate(d: string) {
-    return new Date(d).toLocaleDateString('en-US', {
-      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
-    });
-  }
-
-  function toggleMeet(meetId: string) {
-    setExpandedMeet(prev => prev === meetId ? null : meetId);
+    return new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   }
 
   if (loading) return (
-    <div style={s.page}>
-      <div style={s.loadingWrap}>
-        <div style={s.spinner} />
-        <p style={s.loadingText}>Loading dashboard...</p>
-      </div>
-    </div>
+    <div style={s.page}><div style={s.loadingWrap}><div style={s.spinner} /><p style={s.loadingText}>Loading dashboard...</p></div></div>
   );
 
   if (error) return (
-    <div style={s.page}>
-      <div style={s.loadingWrap}>
-        <p style={s.errorText}>⚠️ {error}</p>
-        <button style={s.retryBtn} onClick={() => window.location.reload()}>Retry</button>
-      </div>
-    </div>
+    <div style={s.page}><div style={s.loadingWrap}><p style={s.errorText}>⚠️ {error}</p><button style={s.retryBtn} onClick={() => window.location.reload()}>Retry</button></div></div>
   );
 
   if (!data) return null;
 
   const { club, season, stats, meets } = data;
-  const seasonLabel = season?.name ?? '—';
 
   return (
     <div style={s.page}>
-      {/* Top bar */}
       <div style={s.topBar}>
         <div style={s.topBarInner}>
           <div style={s.topBarLogo}>G</div>
@@ -153,7 +87,6 @@ function ClubDashboardInner() {
       </div>
 
       <div style={s.layout}>
-        {/* Header */}
         <div style={s.pageHeader}>
           <div>
             <h1 style={s.pageTitle}>
@@ -164,11 +97,10 @@ function ClubDashboardInner() {
           </div>
           <div style={s.seasonBadge}>
             <span style={s.seasonBadgeLabel}>Season:</span>
-            <span style={s.seasonBadgeValue}>{seasonLabel}</span>
+            <span style={s.seasonBadgeValue}>{season?.name ?? '—'}</span>
           </div>
         </div>
 
-        {/* Stats */}
         <div style={s.statsGrid}>
           {([
             [stats.gymnasts, 'Gymnasts'],
@@ -182,13 +114,11 @@ function ClubDashboardInner() {
           ))}
         </div>
 
-        {/* Upcoming Meets */}
         <div style={s.card}>
           <div style={s.cardHeader}>
             <h2 style={s.cardTitle}>Upcoming Meets</h2>
             <button style={s.newMeetBtn} onClick={() => router.push('/meet/new')}>+ New meet</button>
           </div>
-
           <div style={s.meetsTableHeader}>
             <span style={{ flex: 1 }}>Meet</span>
             <span style={s.meetsCol}>Teams Invited</span>
@@ -196,81 +126,45 @@ function ClubDashboardInner() {
             <span style={s.meetsCol}>Meet Scores</span>
             <span style={{ width: 90 }}>Status</span>
           </div>
-
           {meets.length === 0 ? (
             <p style={s.emptyState}>No upcoming meets this season.</p>
-          ) : (
-            meets.map(meet => (
-              <div key={meet.id}>
-                <div
-                  style={{ ...s.meetRow, ...(expandedMeet === meet.id ? s.meetRowExpanded : {}) }}
-                  onClick={() => toggleMeet(meet.id)}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={s.meetNameRow}>
-                      <span style={s.meetName}>{meet.name}</span>
-                      <span style={{
-                        ...s.perspectiveTag,
-                        ...(meet.perspective === 'hosting' ? s.perspectiveTagHost : s.perspectiveTagGuest),
-                      }}>
-                        {meet.perspective === 'hosting' ? 'Hosting' : `@ ${meet.hostClub}`}
-                      </span>
+          ) : meets.map(meet => (
+            <div key={meet.id}>
+              <div style={{ ...s.meetRow, ...(expandedMeet === meet.id ? s.meetRowExpanded : {}) }} onClick={() => setExpandedMeet(p => p === meet.id ? null : meet.id)}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={s.meetNameRow}>
+                    <span style={s.meetName}>{meet.name}</span>
+                    <span style={{ ...s.perspectiveTag, ...(meet.perspective === 'hosting' ? s.perspectiveTagHost : s.perspectiveTagGuest) }}>
+                      {meet.perspective === 'hosting' ? 'Hosting' : `@ ${meet.hostClub}`}
+                    </span>
+                  </div>
+                  <p style={s.meetDate}>{formatDate(meet.date)}</p>
+                </div>
+                <div style={s.meetsCol}><span style={s.meetStat}>{meet.teamsInvited}</span></div>
+                <div style={s.meetsCol}><span style={{ ...s.meetStat, color: meet.teamsConfirmed > 0 ? '#16a34a' : '#9ca3af' }}>{meet.teamsConfirmed}</span></div>
+                <div style={s.meetsCol}>{meet.hasScores ? <span style={s.scoresYes}>✓ Entered</span> : <span style={s.scoresNo}>—</span>}</div>
+                <div style={{ width: 90 }}><span style={{ ...s.statusPill, ...(STATUS_STYLES[meet.status] ?? STATUS_STYLES.setup) }}>{meet.status.replace('_', ' ')}</span></div>
+              </div>
+              {expandedMeet === meet.id && meet.teams && meet.teams.length > 0 && (
+                <div style={s.expandedPanel}>
+                  <p style={s.expandedTitle}>Teams</p>
+                  {meet.teams.map(team => (
+                    <div key={team.id} style={s.expandedTeamRow}>
+                      <span style={s.expandedTeamName}>{team.name}</span>
+                      <span style={{ ...s.teamStatusPill, ...(team.status === 'confirmed' ? s.teamStatusConfirmed : team.status === 'declined' ? s.teamStatusDeclined : s.teamStatusInvited) }}>{team.status}</span>
                     </div>
-                    <p style={s.meetDate}>{formatDate(meet.date)}</p>
-                  </div>
-                  <div style={s.meetsCol}><span style={s.meetStat}>{meet.teamsInvited}</span></div>
-                  <div style={s.meetsCol}>
-                    <span style={{ ...s.meetStat, color: meet.teamsConfirmed > 0 ? '#16a34a' : '#9ca3af' }}>
-                      {meet.teamsConfirmed}
-                    </span>
-                  </div>
-                  <div style={s.meetsCol}>
-                    {meet.hasScores
-                      ? <span style={s.scoresYes}>✓ Entered</span>
-                      : <span style={s.scoresNo}>—</span>
-                    }
-                  </div>
-                  <div style={{ width: 90 }}>
-                    <span style={{ ...s.statusPill, ...(STATUS_STYLES[meet.status] ?? STATUS_STYLES.setup) }}>
-                      {meet.status.replace('_', ' ')}
-                    </span>
+                  ))}
+                  <div style={s.expandedActions}>
+                    <button style={s.expandedActionBtn} onClick={e => { e.stopPropagation(); router.push(`/meet/${meet.id}`); }}>View meet →</button>
+                    {meet.perspective === 'invited' && <button style={s.expandedActionBtn} onClick={e => { e.stopPropagation(); router.push(`/meet/${meet.id}/confirm`); }}>Confirm attendance →</button>}
                   </div>
                 </div>
-
-                {expandedMeet === meet.id && meet.teams && meet.teams.length > 0 && (
-                  <div style={s.expandedPanel}>
-                    <p style={s.expandedTitle}>Teams</p>
-                    <div style={s.expandedTeams}>
-                      {meet.teams.map(team => (
-                        <div key={team.id} style={s.expandedTeamRow}>
-                          <span style={s.expandedTeamName}>{team.name}</span>
-                          <span style={{
-                            ...s.teamStatusPill,
-                            ...(team.status === 'confirmed' ? s.teamStatusConfirmed
-                              : team.status === 'declined' ? s.teamStatusDeclined
-                              : s.teamStatusInvited),
-                          }}>{team.status}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={s.expandedActions}>
-                      <button style={s.expandedActionBtn} onClick={e => { e.stopPropagation(); router.push(`/meet/${meet.id}`); }}>View meet →</button>
-                      {meet.perspective === 'hosting' && (
-                        <button style={s.expandedActionBtn} onClick={e => { e.stopPropagation(); router.push(`/meet/${meet.id}/lineup`); }}>Manage lineup →</button>
-                      )}
-                      {meet.perspective === 'invited' && (
-                        <button style={s.expandedActionBtn} onClick={e => { e.stopPropagation(); router.push(`/meet/${meet.id}/confirm`); }}>Confirm attendance →</button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))
-          )}
+              )}
+            </div>
+          ))}
           <button style={s.viewAllBtn} onClick={() => router.push('/meets')}>View All</button>
         </div>
 
-        {/* Quick Actions */}
         <div style={s.quickActionsGrid}>
           {QUICK_ACTIONS.map(action => (
             <button key={action.key} style={s.quickActionCard} onClick={() => router.push(action.href)}>
@@ -289,11 +183,7 @@ function ClubDashboardInner() {
 
 export default function ClubDashboard() {
   return (
-    <Suspense fallback={
-      <div style={s.page}>
-        <div style={s.loadingWrap}><div style={s.spinner} /></div>
-      </div>
-    }>
+    <Suspense fallback={<div style={s.page}><div style={s.loadingWrap}><div style={s.spinner} /></div></div>}>
       <ClubDashboardInner />
     </Suspense>
   );
@@ -345,8 +235,7 @@ const s: Record<string, React.CSSProperties> = {
   statusPill:     { borderRadius: 99, padding: '3px 10px', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap' },
   expandedPanel:      { backgroundColor: '#f9fafb', border: '1px solid #f3f4f6', borderRadius: 8, padding: '12px 16px', marginBottom: 8 },
   expandedTitle:      { fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' },
-  expandedTeams:      { display: 'flex', flexDirection: 'column', gap: 6 },
-  expandedTeamRow:    { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  expandedTeamRow:    { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   expandedTeamName:   { fontSize: 13, color: '#111827' },
   teamStatusPill:     { fontSize: 11, fontWeight: 600, borderRadius: 99, padding: '2px 8px' },
   teamStatusConfirmed:{ backgroundColor: '#dcfce7', color: '#166534' },
