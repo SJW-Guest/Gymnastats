@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ScoringRules {
-  scores_per_event: number;
-  meets_for_standings: number;
+  scores_per_event:     number;
+  min_meets_to_qualify: number;
+  meets_to_sum:         number;
 }
 
 interface Season {
@@ -77,11 +78,15 @@ function MAGADashboardInner() {
   const [standings, setStandings] = useState<Standing[]>([]);
   const [clubContacts, setClubContacts] = useState<ClubContact[]>([]);
 
-  // Scoring rules edit state
   const [editingRules, setEditingRules] = useState(false);
-  const [rulesForm, setRulesForm] = useState<ScoringRules>({ scores_per_event: 4, meets_for_standings: 5 });
+  const [rulesForm, setRulesForm] = useState<ScoringRules>({
+    scores_per_event:     4,
+    min_meets_to_qualify: 4,
+    meets_to_sum:         3,
+  });
   const [rulesSaving, setRulesSaving] = useState(false);
   const [rulesSuccess, setRulesSuccess] = useState(false);
+  const [rulesError, setRulesError] = useState('');
 
   useEffect(() => {
     async function load() {
@@ -95,9 +100,13 @@ function MAGADashboardInner() {
         setStandings(data.standings);
         setClubContacts(data.clubContacts);
         if (data.season?.scoring_rules) {
-          setRulesForm(data.season.scoring_rules);
+          setRulesForm({
+            scores_per_event:     data.season.scoring_rules.scores_per_event     ?? 4,
+            min_meets_to_qualify: data.season.scoring_rules.min_meets_to_qualify ?? 4,
+            meets_to_sum:         data.season.scoring_rules.meets_to_sum         ?? 3,
+          });
         }
-      } catch (e) {
+      } catch {
         setError('Failed to load dashboard data.');
       } finally {
         setLoading(false);
@@ -108,6 +117,14 @@ function MAGADashboardInner() {
 
   async function saveRules() {
     if (!season) return;
+    setRulesError('');
+
+    // Client-side validation
+    if (rulesForm.meets_to_sum >= rulesForm.min_meets_to_qualify) {
+      setRulesError('Meets to sum must be less than minimum meets to qualify.');
+      return;
+    }
+
     setRulesSaving(true);
     try {
       const res = await fetch(`/api/seasons/${season.id}/scoring-rules`, {
@@ -115,19 +132,36 @@ function MAGADashboardInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(rulesForm),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? 'Failed to save');
+      }
       setEditingRules(false);
       setRulesSuccess(true);
       setTimeout(() => setRulesSuccess(false), 3000);
-    } catch {
-      setError('Failed to save scoring rules.');
+    } catch (e: any) {
+      setRulesError(e.message ?? 'Failed to save scoring rules.');
     } finally {
       setRulesSaving(false);
     }
   }
 
   function formatDate(d: string) {
-    return new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    return new Date(d).toLocaleDateString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+    });
+  }
+
+  function Stepper({ value, onChange, min = 1, max = 20 }: {
+    value: number; onChange: (v: number) => void; min?: number; max?: number;
+  }) {
+    return (
+      <div style={s.ruleInputRow}>
+        <button style={s.stepBtn} onClick={() => onChange(Math.max(min, value - 1))}>−</button>
+        <span style={s.stepVal}>{value}</span>
+        <button style={s.stepBtn} onClick={() => onChange(Math.min(max, value + 1))}>+</button>
+      </div>
+    );
   }
 
   if (loading) return (
@@ -143,9 +177,13 @@ function MAGADashboardInner() {
     ? `${new Date(season.start_date).getFullYear()} – ${new Date(season.end_date).getFullYear()}`
     : '—';
 
+  const currentRules = season?.scoring_rules ?? {
+    scores_per_event: 4, min_meets_to_qualify: 4, meets_to_sum: 3,
+  };
+
   return (
     <div style={s.page}>
-      {/* ── Top bar ── */}
+      {/* Top bar */}
       <div style={s.topBar}>
         <div style={s.topBarInner}>
           <div style={s.topBarLogo}>G</div>
@@ -157,7 +195,7 @@ function MAGADashboardInner() {
       </div>
 
       <div style={s.layout}>
-        {/* ── Sidebar ── */}
+        {/* Sidebar */}
         <aside style={s.sidebar}>
           <div style={s.sidebarTitle}>
             <span style={s.sidebarTitleMuted}>MAGA</span>
@@ -166,10 +204,10 @@ function MAGADashboardInner() {
           <p style={s.sidebarSub}>MAGA Administrator</p>
           <nav style={s.nav}>
             {([
-              ['standings',    'Season Standings'],
-              ['contacts',     'Club Contacts'],
-              ['maga-contacts','MAGA Contacts'],
-              ['scoring-rules','Scoring Rules'],
+              ['standings',     'Season Standings'],
+              ['contacts',      'Club Contacts'],
+              ['maga-contacts', 'MAGA Contacts'],
+              ['scoring-rules', 'Scoring Rules'],
             ] as [NavSection, string][]).map(([key, label]) => (
               <button
                 key={key}
@@ -182,9 +220,8 @@ function MAGADashboardInner() {
           </nav>
         </aside>
 
-        {/* ── Main ── */}
+        {/* Main */}
         <main style={s.main}>
-          {/* Season label */}
           <div style={s.seasonRow}>
             <span style={s.seasonLabel}>Current Season:</span>
             <span style={s.seasonValue}>{seasonLabel}</span>
@@ -193,7 +230,7 @@ function MAGADashboardInner() {
           {error && <div style={s.errorBanner}>⚠️ {error}</div>}
           {rulesSuccess && <div style={s.successBanner}>✓ Scoring rules saved successfully.</div>}
 
-          {/* ── Stats ── */}
+          {/* Stats */}
           <div style={s.statsGrid}>
             {([
               [stats.clubs,    'Clubs'],
@@ -208,7 +245,7 @@ function MAGADashboardInner() {
             ))}
           </div>
 
-          {/* ── Upcoming meets ── */}
+          {/* Upcoming meets */}
           <div style={s.card}>
             <div style={s.cardHeader}>
               <h2 style={s.cardTitle}>Upcoming Meets</h2>
@@ -218,14 +255,13 @@ function MAGADashboardInner() {
               <p style={s.emptyState}>No upcoming meets.</p>
             ) : (
               upcomingMeets.map(meet => (
-                <div
-                  key={meet.id}
-                  style={s.meetRow}
-                  onClick={() => router.push(`/meet/${meet.id}`)}
-                >
+                <div key={meet.id} style={s.meetRow} onClick={() => router.push(`/meet/${meet.id}`)}>
                   <div>
                     <p style={s.meetName}>{meet.name}</p>
-                    <p style={s.meetDate}>{formatDate(meet.meet_date)}{meet.host_club ? ` · ${meet.host_club.name}` : ''}</p>
+                    <p style={s.meetDate}>
+                      {formatDate(meet.meet_date)}
+                      {meet.host_club ? ` · ${meet.host_club.name}` : ''}
+                    </p>
                   </div>
                   <span style={{ ...s.statusPill, ...(STATUS_STYLES[meet.status] ?? STATUS_STYLES.setup) }}>
                     {meet.status.replace('_', ' ')}
@@ -236,12 +272,20 @@ function MAGADashboardInner() {
             <button style={s.viewAllBtn} onClick={() => router.push('/meets')}>View All</button>
           </div>
 
-          {/* ── Season standings (active section) ── */}
+          {/* Season standings */}
           {activeSection === 'standings' && (
             <div style={s.card}>
               <div style={s.cardHeader}>
                 <h2 style={s.cardTitle}>Season Team Scores</h2>
                 <button style={s.viewAllBtn} onClick={() => router.push('/standings')}>View All</button>
+              </div>
+              {/* Scoring summary */}
+              <div style={s.standingsSummary}>
+                <span style={s.standingsSummaryText}>
+                  Top {currentRules.scores_per_event} gymnast scores per event &nbsp;·&nbsp;
+                  Sum of best {currentRules.meets_to_sum} meets &nbsp;·&nbsp;
+                  Min {currentRules.min_meets_to_qualify} meets to qualify for state
+                </span>
               </div>
               {standings.length === 0 ? (
                 <p style={s.emptyState}>No standings data yet.</p>
@@ -269,14 +313,13 @@ function MAGADashboardInner() {
                           {row.meetsCounting}/{row.meetsAttended}
                         </td>
                         <td style={{ ...s.td, textAlign: 'right', fontWeight: 600 }}>
-                          {row.bestMeetsTotal.toFixed(3)}
+                          {Number(row.bestMeetsTotal).toFixed(3)}
                         </td>
                         <td style={{ ...s.td, textAlign: 'center' }}>
-                          {row.qualifiesForState ? (
-                            <span style={s.qualifyBadge}>✓</span>
-                          ) : (
-                            <span style={s.noQualifyBadge}>–</span>
-                          )}
+                          {row.qualifiesForState
+                            ? <span style={s.qualifyBadge}>✓ Qualifies</span>
+                            : <span style={s.noQualifyBadge}>–</span>
+                          }
                         </td>
                       </tr>
                     ))}
@@ -286,7 +329,7 @@ function MAGADashboardInner() {
             </div>
           )}
 
-          {/* ── Club contacts ── */}
+          {/* Club contacts */}
           {activeSection === 'contacts' && (
             <div style={s.card}>
               <h2 style={s.cardTitle}>Club Contacts</h2>
@@ -315,7 +358,7 @@ function MAGADashboardInner() {
             </div>
           )}
 
-          {/* ── Scoring rules ── */}
+          {/* Scoring rules */}
           {activeSection === 'scoring-rules' && (
             <div style={s.card}>
               <div style={s.cardHeader}>
@@ -328,55 +371,81 @@ function MAGADashboardInner() {
                 )}
               </div>
 
+              {rulesError && <div style={s.errorBanner}>⚠️ {rulesError}</div>}
+
+              {/* How qualification works */}
+              <div style={s.qualLogicBox}>
+                <p style={s.qualLogicTitle}>How state qualification works</p>
+                <p style={s.qualLogicText}>
+                  A team must attend at least <strong>{editingRules ? rulesForm.min_meets_to_qualify : currentRules.min_meets_to_qualify} meets</strong>.
+                  Their lowest scoring meet is discarded, and the top <strong>{editingRules ? rulesForm.meets_to_sum : currentRules.meets_to_sum} meet scores</strong> are
+                  summed to produce their season total. Each meet score is the sum of
+                  the top <strong>{editingRules ? rulesForm.scores_per_event : currentRules.scores_per_event} gymnast scores</strong> per event.
+                </p>
+                <div style={s.qualExample}>
+                  <span style={s.qualExampleLabel}>Example:</span>
+                  <span style={s.qualExampleText}>
+                    Team attends {editingRules ? rulesForm.min_meets_to_qualify + 1 : currentRules.min_meets_to_qualify + 1} meets →
+                    discard lowest → sum top {editingRules ? rulesForm.meets_to_sum : currentRules.meets_to_sum} = season score
+                  </span>
+                </div>
+              </div>
+
               <div style={s.rulesGrid}>
                 {/* Scores per event */}
                 <div style={s.ruleCard}>
-                  <p style={s.ruleLabel}>Top scores per event</p>
+                  <p style={s.ruleLabel}>Top gymnast scores per event</p>
                   <p style={s.ruleDesc}>
-                    The top <strong>{editingRules ? rulesForm.scores_per_event : (season?.scoring_rules?.scores_per_event ?? 4)}</strong> gymnast
-                    scores from each event (vault, bars, beam, floor) count toward the team's meet total.
+                    The top <strong>{editingRules ? rulesForm.scores_per_event : currentRules.scores_per_event}</strong> gymnast
+                    scores from each event count toward the team's meet total.
                   </p>
                   {editingRules && (
-                    <div style={s.ruleInputRow}>
-                      <button
-                        style={s.stepBtn}
-                        onClick={() => setRulesForm(f => ({ ...f, scores_per_event: Math.max(1, f.scores_per_event - 1) }))}
-                      >−</button>
-                      <span style={s.stepVal}>{rulesForm.scores_per_event}</span>
-                      <button
-                        style={s.stepBtn}
-                        onClick={() => setRulesForm(f => ({ ...f, scores_per_event: Math.min(10, f.scores_per_event + 1) }))}
-                      >+</button>
-                    </div>
+                    <Stepper
+                      value={rulesForm.scores_per_event}
+                      onChange={v => setRulesForm(f => ({ ...f, scores_per_event: v }))}
+                      min={1} max={10}
+                    />
                   )}
                 </div>
 
-                {/* Meets for standings */}
+                {/* Min meets to qualify */}
                 <div style={s.ruleCard}>
-                  <p style={s.ruleLabel}>Best meets for state standing</p>
+                  <p style={s.ruleLabel}>Minimum meets to qualify</p>
                   <p style={s.ruleDesc}>
-                    A team's best <strong>{editingRules ? rulesForm.meets_for_standings : (season?.scoring_rules?.meets_for_standings ?? 5)}</strong> meet
-                    scores are summed to determine their season standing and state qualification.
+                    A team must attend at least <strong>{editingRules ? rulesForm.min_meets_to_qualify : currentRules.min_meets_to_qualify} meets</strong> during
+                    the season to be eligible for state.
                   </p>
                   {editingRules && (
-                    <div style={s.ruleInputRow}>
-                      <button
-                        style={s.stepBtn}
-                        onClick={() => setRulesForm(f => ({ ...f, meets_for_standings: Math.max(1, f.meets_for_standings - 1) }))}
-                      >−</button>
-                      <span style={s.stepVal}>{rulesForm.meets_for_standings}</span>
-                      <button
-                        style={s.stepBtn}
-                        onClick={() => setRulesForm(f => ({ ...f, meets_for_standings: Math.min(20, f.meets_for_standings + 1) }))}
-                      >+</button>
-                    </div>
+                    <Stepper
+                      value={rulesForm.min_meets_to_qualify}
+                      onChange={v => setRulesForm(f => ({ ...f, min_meets_to_qualify: v }))}
+                      min={1} max={20}
+                    />
+                  )}
+                </div>
+
+                {/* Meets to sum */}
+                <div style={s.ruleCard}>
+                  <p style={s.ruleLabel}>Best meets to sum</p>
+                  <p style={s.ruleDesc}>
+                    After discarding the lowest meet, the top <strong>{editingRules ? rulesForm.meets_to_sum : currentRules.meets_to_sum} meet scores</strong> are
+                    summed to produce the season standing.
+                  </p>
+                  {editingRules && (
+                    <Stepper
+                      value={rulesForm.meets_to_sum}
+                      onChange={v => setRulesForm(f => ({ ...f, meets_to_sum: v }))}
+                      min={1} max={20}
+                    />
                   )}
                 </div>
               </div>
 
               {editingRules && (
                 <div style={s.ruleActions}>
-                  <button style={s.cancelBtn} onClick={() => setEditingRules(false)}>Cancel</button>
+                  <button style={s.cancelBtn} onClick={() => { setEditingRules(false); setRulesError(''); }}>
+                    Cancel
+                  </button>
                   <button style={s.saveBtn} onClick={saveRules} disabled={rulesSaving}>
                     {rulesSaving ? 'Saving...' : 'Save Rules'}
                   </button>
@@ -385,14 +454,14 @@ function MAGADashboardInner() {
 
               <div style={s.rulesNote}>
                 <p style={s.rulesNoteText}>
-                  ℹ️ Changes take effect immediately and will recalculate all season standings.
-                  Contact your Supabase administrator if you need to override standings for individual teams.
+                  ℹ️ Changes take effect immediately and recalculate all season standings.
+                  Use standings overrides in Supabase to manually adjust individual team results.
                 </p>
               </div>
             </div>
           )}
 
-          {/* ── MAGA contacts placeholder ── */}
+          {/* MAGA contacts */}
           {activeSection === 'maga-contacts' && (
             <div style={s.card}>
               <h2 style={s.cardTitle}>MAGA Contacts</h2>
@@ -409,9 +478,7 @@ export default function MAGADashboard() {
   return (
     <Suspense fallback={
       <div style={s.page}>
-        <div style={s.loadingWrap}>
-          <div style={s.spinner} />
-        </div>
+        <div style={s.loadingWrap}><div style={s.spinner} /></div>
       </div>
     }>
       <MAGADashboardInner />
@@ -425,16 +492,13 @@ const s: Record<string, React.CSSProperties> = {
   loadingWrap:     { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', gap: 16 },
   spinner:         { width: 32, height: 32, border: '3px solid #e5e7eb', borderTopColor: '#111827', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
   loadingText:     { color: '#6b7280', fontSize: 14, margin: 0 },
-
   topBar:          { backgroundColor: '#111827', padding: '0 24px' },
   topBarInner:     { maxWidth: 1200, margin: '0 auto', height: 52, display: 'flex', alignItems: 'center', gap: 10 },
   topBarLogo:      { width: 28, height: 28, borderRadius: 6, backgroundColor: '#fff', color: '#111827', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 },
   topBarName:      { color: '#fff', fontWeight: 600, fontSize: 15 },
   topBarUser:      { color: '#9ca3af', fontSize: 13 },
   signOutBtn:      { marginLeft: 12, background: 'none', border: '1px solid #374151', borderRadius: 6, color: '#9ca3af', padding: '5px 12px', fontSize: 13, cursor: 'pointer' },
-
-  layout:          { maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: '220px 1fr', gap: 0, minHeight: 'calc(100vh - 52px)' },
-
+  layout:          { maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: '220px 1fr', minHeight: 'calc(100vh - 52px)' },
   sidebar:         { backgroundColor: '#fff', borderRight: '1px solid #e5e7eb', padding: '28px 20px' },
   sidebarTitle:    { fontSize: 20, marginBottom: 2 },
   sidebarTitleMuted: { color: '#6b7280', fontWeight: 400 },
@@ -443,60 +507,58 @@ const s: Record<string, React.CSSProperties> = {
   nav:             { display: 'flex', flexDirection: 'column', gap: 2 },
   navItem:         { background: 'none', border: 'none', textAlign: 'left', padding: '9px 12px', borderRadius: 8, fontSize: 14, color: '#374151', cursor: 'pointer' },
   navItemActive:   { backgroundColor: '#f3f4f6', fontWeight: 600, color: '#111827' },
-
   main:            { padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 },
-
   seasonRow:       { display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' },
   seasonLabel:     { fontSize: 14, color: '#6b7280' },
   seasonValue:     { fontSize: 16, fontWeight: 600, color: '#111827' },
-
   errorBanner:     { backgroundColor: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 14 },
   successBanner:   { backgroundColor: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '10px 14px', color: '#16a34a', fontSize: 14 },
-
   statsGrid:       { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 },
   statCard:        { backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '20px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 },
   statVal:         { fontSize: 28, fontWeight: 700, color: '#111827' },
   statLabel:       { fontSize: 13, color: '#6b7280' },
-
   card:            { backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '20px 24px' },
   cardHeader:      { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   cardTitle:       { fontSize: 16, fontWeight: 600, color: '#111827', margin: 0 },
   cardSubtitle:    { fontSize: 12, color: '#9ca3af', margin: '2px 0 0' },
   cardHeaderRight: { fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' },
-
   meetRow:         { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid #f3f4f6', cursor: 'pointer' },
   meetName:        { fontSize: 14, fontWeight: 500, color: '#111827', margin: '0 0 2px' },
   meetDate:        { fontSize: 12, color: '#9ca3af', margin: 0 },
   statusPill:      { borderRadius: 99, padding: '3px 10px', fontSize: 12, fontWeight: 500 },
-
   viewAllBtn:      { background: 'none', border: 'none', color: '#6b7280', fontSize: 13, cursor: 'pointer', padding: '8px 0 0', display: 'block', textAlign: 'center', width: '100%' },
-
+  standingsSummary:    { backgroundColor: '#f9fafb', borderRadius: 8, padding: '8px 12px', marginBottom: 16 },
+  standingsSummaryText:{ fontSize: 12, color: '#6b7280' },
   table:           { width: '100%', borderCollapse: 'collapse' },
   th:              { fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '8px 10px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' },
   tr:              { borderBottom: '1px solid #f9fafb' },
   td:              { padding: '10px 10px', fontSize: 14, color: '#111827' },
   qualifyBadge:    { backgroundColor: '#dcfce7', color: '#166534', borderRadius: 99, padding: '2px 8px', fontSize: 12, fontWeight: 600 },
   noQualifyBadge:  { color: '#d1d5db', fontSize: 14 },
-
   contactRow:      { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid #f3f4f6' },
   contactName:     { fontSize: 14, fontWeight: 500, color: '#111827', margin: '0 0 2px' },
   contactSub:      { fontSize: 12, color: '#9ca3af', margin: 0 },
   contactDetails:  { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 },
   contactLink:     { fontSize: 13, color: '#2563eb', textDecoration: 'none' },
   contactPhone:    { fontSize: 13, color: '#6b7280' },
-
-  // Scoring rules
   editBtn:         { backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 7, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer', color: '#374151' },
-  rulesGrid:       { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 8 },
+  qualLogicBox:    { backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '14px 16px', marginBottom: 20 },
+  qualLogicTitle:  { fontSize: 12, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' },
+  qualLogicText:   { fontSize: 14, color: '#78350f', lineHeight: 1.6, margin: '0 0 10px' },
+  qualExample:     { display: 'flex', alignItems: 'center', gap: 8 },
+  qualExampleLabel:{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase' },
+  qualExampleText: { fontSize: 13, color: '#92400e' },
+  rulesGrid:       { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginTop: 8 },
   ruleCard:        { backgroundColor: '#f9fafb', border: '1px solid #f3f4f6', borderRadius: 10, padding: '16px 18px' },
   ruleLabel:       { fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px' },
   ruleDesc:        { fontSize: 14, color: '#374151', lineHeight: 1.6, margin: 0 },
   ruleInputRow:    { display: 'flex', alignItems: 'center', gap: 12, marginTop: 14 },
-  stepBtn:         { width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e5e7eb', backgroundColor: '#fff', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#111827', fontWeight: 500 },
+  stepBtn:         { width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e5e7eb', backgroundColor: '#fff', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#111827' },
   stepVal:         { fontSize: 22, fontWeight: 700, color: '#111827', minWidth: 32, textAlign: 'center' },
   ruleActions:     { display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 },
   cancelBtn:       { backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '9px 18px', fontSize: 14, cursor: 'pointer', color: '#374151' },
   saveBtn:         { backgroundColor: '#111827', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer', color: '#fff' },
   rulesNote:       { marginTop: 20, padding: '12px 16px', backgroundColor: '#f0f9ff', borderRadius: 8, border: '1px solid #bae6fd' },
   rulesNoteText:   { fontSize: 13, color: '#0369a1', margin: 0, lineHeight: 1.5 },
+  emptyState:      { fontSize: 14, color: '#9ca3af', textAlign: 'center', padding: '24px 0', margin: 0 },
 };

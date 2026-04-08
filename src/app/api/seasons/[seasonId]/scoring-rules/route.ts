@@ -1,9 +1,15 @@
 // src/app/api/seasons/[seasonId]/scoring-rules/route.ts
-// GET  /api/seasons/[seasonId]/scoring-rules  — fetch current rules
-// PUT  /api/seasons/[seasonId]/scoring-rules  — update rules (MAGA admin only)
+// GET  — fetch current rules
+// PUT  — update rules (MAGA admin only)
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+
+const DEFAULTS = {
+  scores_per_event:     4,
+  min_meets_to_qualify: 4,
+  meets_to_sum:         3,
+};
 
 export async function GET(
   _req: NextRequest,
@@ -17,13 +23,8 @@ export async function GET(
     .eq('season_id', seasonId)
     .single();
 
-  if (error) {
-    // Return defaults if no rules set yet
-    return NextResponse.json({
-      season_id: seasonId,
-      scores_per_event: 4,
-      meets_for_standings: 5,
-    });
+  if (error || !data) {
+    return NextResponse.json({ season_id: seasonId, ...DEFAULTS });
   }
 
   return NextResponse.json(data);
@@ -35,20 +36,39 @@ export async function PUT(
 ) {
   const { seasonId } = await params;
 
-  let body: { scores_per_event?: number; meets_for_standings?: number };
+  let body: {
+    scores_per_event?:     number;
+    min_meets_to_qualify?: number;
+    meets_to_sum?:         number;
+  };
+
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { scores_per_event, meets_for_standings } = body;
+  const { scores_per_event, min_meets_to_qualify, meets_to_sum } = body;
 
-  if (
-    (scores_per_event !== undefined && (scores_per_event < 1 || scores_per_event > 10)) ||
-    (meets_for_standings !== undefined && (meets_for_standings < 1 || meets_for_standings > 20))
-  ) {
-    return NextResponse.json({ error: 'Values out of range' }, { status: 400 });
+  // Validate ranges
+  if (scores_per_event !== undefined && (scores_per_event < 1 || scores_per_event > 10)) {
+    return NextResponse.json({ error: 'scores_per_event must be 1–10' }, { status: 400 });
+  }
+  if (min_meets_to_qualify !== undefined && (min_meets_to_qualify < 1 || min_meets_to_qualify > 20)) {
+    return NextResponse.json({ error: 'min_meets_to_qualify must be 1–20' }, { status: 400 });
+  }
+  if (meets_to_sum !== undefined && (meets_to_sum < 1 || meets_to_sum > 20)) {
+    return NextResponse.json({ error: 'meets_to_sum must be 1–20' }, { status: 400 });
+  }
+  // meets_to_sum must be less than min_meets_to_qualify
+  // (you need to attend more meets than you count)
+  const effectiveMeetsToSum         = meets_to_sum         ?? DEFAULTS.meets_to_sum;
+  const effectiveMinMeetsToQualify  = min_meets_to_qualify ?? DEFAULTS.min_meets_to_qualify;
+  if (effectiveMeetsToSum >= effectiveMinMeetsToQualify) {
+    return NextResponse.json(
+      { error: 'Meets to sum must be less than minimum meets to qualify' },
+      { status: 400 }
+    );
   }
 
   const { data, error } = await supabaseAdmin
@@ -56,8 +76,9 @@ export async function PUT(
     .upsert(
       {
         season_id: seasonId,
-        ...(scores_per_event !== undefined && { scores_per_event }),
-        ...(meets_for_standings !== undefined && { meets_for_standings }),
+        ...(scores_per_event     !== undefined && { scores_per_event }),
+        ...(min_meets_to_qualify !== undefined && { min_meets_to_qualify }),
+        ...(meets_to_sum         !== undefined && { meets_to_sum }),
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'season_id' }
