@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 // Types
@@ -16,7 +16,8 @@ interface Division {
   teamIds: string[];
 }
 
-export default function MeetCreationStep2() {
+// ─── Inner component (uses useSearchParams) ───────────────────────────────────
+function MeetCreationStep2Inner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const meetId = searchParams.get('meetId');
@@ -30,7 +31,6 @@ export default function MeetCreationStep2() {
   const [error, setError] = useState('');
   const [step, setStep] = useState<'teams' | 'divisions'>('teams');
 
-  // Fetch all MAGA teams
   useEffect(() => {
     async function fetchTeams() {
       try {
@@ -47,13 +47,11 @@ export default function MeetCreationStep2() {
     fetchTeams();
   }, []);
 
-  // Toggle team selection
   function toggleTeam(teamId: string) {
     setSelectedTeamIds(prev => {
       const next = new Set(prev);
       if (next.has(teamId)) {
         next.delete(teamId);
-        // Remove from any division if de-selected
         setDivisions(divs =>
           divs.map(d => ({ ...d, teamIds: d.teamIds.filter(id => id !== teamId) }))
         );
@@ -64,7 +62,6 @@ export default function MeetCreationStep2() {
     });
   }
 
-  // Add a new division
   function addDivision() {
     const name = newDivisionName.trim();
     if (!name) return;
@@ -80,17 +77,14 @@ export default function MeetCreationStep2() {
     setError('');
   }
 
-  // Remove a division
   function removeDivision(divId: string) {
     setDivisions(prev => prev.filter(d => d.id !== divId));
   }
 
-  // Assign a team to a division (one team = one division)
   function assignTeamToDivision(teamId: string, divId: string) {
     setDivisions(prev =>
       prev.map(d => {
         if (d.id === divId) {
-          // Toggle: if already in this division, remove; otherwise add
           const already = d.teamIds.includes(teamId);
           return {
             ...d,
@@ -99,13 +93,11 @@ export default function MeetCreationStep2() {
               : [...d.teamIds, teamId],
           };
         }
-        // Remove from other divisions (one team = one division)
         return { ...d, teamIds: d.teamIds.filter(id => id !== teamId) };
       })
     );
   }
 
-  // Get which division a team is in (if any)
   function getTeamDivision(teamId: string): string | null {
     const div = divisions.find(d => d.teamIds.includes(teamId));
     return div ? div.id : null;
@@ -114,7 +106,6 @@ export default function MeetCreationStep2() {
   const selectedTeams = allTeams.filter(t => selectedTeamIds.has(t.id));
   const unassignedTeams = selectedTeams.filter(t => getTeamDivision(t.id) === null);
 
-  // Validate and save
   async function handleSave() {
     if (selectedTeamIds.size === 0) {
       setError('Please select at least one team.');
@@ -176,7 +167,6 @@ export default function MeetCreationStep2() {
           </div>
         </div>
 
-        {/* Step tabs */}
         <div style={styles.tabs}>
           <button
             style={{ ...styles.tab, ...(step === 'teams' ? styles.tabActive : {}) }}
@@ -222,16 +212,12 @@ export default function MeetCreationStep2() {
                 <p style={styles.sectionSub}>Select all participating teams from MAGA clubs.</p>
               </div>
               {selectedTeamIds.size > 0 && (
-                <button
-                  style={styles.primaryBtn}
-                  onClick={() => setStep('divisions')}
-                >
+                <button style={styles.primaryBtn} onClick={() => setStep('divisions')}>
                   Continue to Divisions →
                 </button>
               )}
             </div>
 
-            {/* Group teams by club */}
             {Object.entries(
               allTeams.reduce((acc, team) => {
                 if (!acc[team.clubName]) acc[team.clubName] = [];
@@ -253,9 +239,7 @@ export default function MeetCreationStep2() {
                         }}
                         onClick={() => toggleTeam(team.id)}
                       >
-                        <div style={styles.teamCardCheck}>
-                          {selected ? '✓' : ''}
-                        </div>
+                        <div style={styles.teamCardCheck}>{selected ? '✓' : ''}</div>
                         <span style={styles.teamCardName}>{team.name}</span>
                       </button>
                     );
@@ -332,7 +316,6 @@ export default function MeetCreationStep2() {
 
               {/* Right: Divisions */}
               <div style={styles.divisionsPanel}>
-                {/* Add division input */}
                 <div style={styles.addDivisionRow}>
                   <input
                     style={styles.divisionInput}
@@ -401,6 +384,22 @@ export default function MeetCreationStep2() {
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Outer component with Suspense boundary (required by Next.js 15) ──────────
+export default function MeetCreationStep2() {
+  return (
+    <Suspense fallback={
+      <div style={styles.page}>
+        <div style={styles.loadingContainer}>
+          <div style={styles.spinner} />
+          <p style={styles.loadingText}>Loading...</p>
+        </div>
+      </div>
+    }>
+      <MeetCreationStep2Inner />
+    </Suspense>
   );
 }
 
@@ -476,12 +475,6 @@ const styles: Record<string, React.CSSProperties> = {
   tabDisabled: {
     opacity: 0.4,
     cursor: 'not-allowed',
-  },
-  tabDivider: {
-    width: 32,
-    height: 1,
-    backgroundColor: '#e5e7eb',
-    margin: '0 8px',
   },
   tabNumber: {
     width: 22,
@@ -602,7 +595,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
     color: '#111827',
   },
-  // Divisions layout
   divisionLayout: {
     display: 'grid',
     gridTemplateColumns: '280px 1fr',
@@ -798,7 +790,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 0,
     fontWeight: 700,
   },
-  // Loading
   loadingContainer: {
     display: 'flex',
     flexDirection: 'column' as const,
