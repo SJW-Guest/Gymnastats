@@ -1,7 +1,4 @@
 // src/proxy.ts
-// Simplified auth check — only verifies user is logged in.
-// Role-based routing is handled by the login page and individual pages.
-
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -10,7 +7,6 @@ const PUBLIC_PATHS = ['/auth/login', '/auth/callback', '/auth/signout'];
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Always allow public paths, API routes, and static files
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next();
   if (pathname.startsWith('/api/')) return NextResponse.next();
   if (pathname.startsWith('/_next/') || pathname.includes('.')) return NextResponse.next();
@@ -34,17 +30,17 @@ export async function proxy(req: NextRequest) {
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  // Use getSession() — reads directly from cookie, no network call
+  // getUser() makes a network call to verify with Supabase Auth server
+  // which can fail if the cookie hasn't fully propagated yet
+  const { data: { session } } = await supabase.auth.getSession();
 
-  // Not logged in → redirect to login
-  if (!user) {
+  if (!session) {
     const loginUrl = new URL('/auth/login', req.url);
     loginUrl.searchParams.set('redirectTo', pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // User is logged in — let them through
-  // Individual pages handle their own role checks
   return res;
 }
 
