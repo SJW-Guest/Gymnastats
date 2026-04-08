@@ -1,21 +1,4 @@
 // src/app/api/meets/[meetId]/setup/route.ts
-// POST /api/meets/[meetId]/setup
-//
-// Body: {
-//   teamIds: string[],          // UUIDs of teams attending the meet
-//   divisions: {
-//     name: string,             // custom division name
-//     teamIds: string[]         // which teams are in this division
-//   }[]
-// }
-//
-// What this does:
-//  1. Validates meet exists and belongs to a club the caller manages
-//  2. Upserts meet_divisions rows for each division
-//  3. Upserts meet_teams rows linking each team to the meet + division
-//  4. Updates meet status to 'scheduled' if still in 'setup'
-//  5. Deletes any previously saved teams/divisions not in this submission
-//     (full replace — safe since Step 2 is idempotent before finalize)
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -32,9 +15,9 @@ interface SetupBody {
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { meetId: string } }
+  { params }: { params: Promise<{ meetId: string }> }
 ) {
-  const { meetId } = params;
+  const { meetId } = await params;
 
   // ── 1. Parse & validate body ────────────────────────────────────────────
   let body: SetupBody;
@@ -82,7 +65,6 @@ export async function POST(
   }
 
   // ── 3. Delete existing divisions + team assignments (full replace) ──────
-  // Delete meet_teams first (FK dependency on meet_divisions)
   const { error: delTeamsError } = await supabaseAdmin
     .from('meet_teams')
     .delete()
@@ -128,7 +110,7 @@ export async function POST(
     );
   }
 
-  // Build a name → id map for the newly inserted divisions
+  // Build name → id map
   const divisionNameToId: Record<string, string> = {};
   insertedDivisions.forEach(d => {
     divisionNameToId[d.name] = d.id;
@@ -164,7 +146,6 @@ export async function POST(
       .eq('id', meetId);
 
     if (statusError) {
-      // Non-fatal — log but don't fail the whole request
       console.warn('[setup] Failed to update meet status:', statusError);
     }
   }
