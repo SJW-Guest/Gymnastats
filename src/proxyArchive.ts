@@ -1,6 +1,11 @@
-// src/proxy.ts
-// Auth + role-based routing for Next.js 16
-// Replaces middleware.ts — export must be named "proxy"
+// src/middleware.ts
+// Handles auth + role-based routing for all protected pages
+//
+// Routes:
+//   maga_admin  → /dashboard        (MAGA admin dashboard)
+//   club_staff  → /club/dashboard   (Club dashboard)
+//   parent      → /scores           (Score viewing)
+//   unauthenticated → /auth/login
 
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
@@ -9,11 +14,11 @@ const PUBLIC_PATHS = ['/auth/login', '/auth/callback', '/auth/signout'];
 
 const ROLE_HOME: Record<string, string> = {
   maga_admin: '/dashboard',
-  club_staff:  '/club/dashboard',
-  parent:      '/scores',
+  club_staff: '/club/dashboard',
+  parent:     '/scores',
 };
 
-export async function proxy(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Allow public paths through
@@ -23,11 +28,6 @@ export async function proxy(req: NextRequest) {
 
   // Allow API routes to handle their own auth
   if (pathname.startsWith('/api/')) {
-    return NextResponse.next();
-  }
-
-  // Allow static files
-  if (pathname.startsWith('/_next/') || pathname.includes('.')) {
     return NextResponse.next();
   }
 
@@ -60,7 +60,7 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Get user role
+  // Get user role from users table
   const { data: profile } = await supabase
     .from('users')
     .select('role')
@@ -68,19 +68,19 @@ export async function proxy(req: NextRequest) {
     .single();
 
   const role = profile?.role as string | undefined;
-  const homeRoute = role ? (ROLE_HOME[role] ?? '/auth/login') : '/auth/login';
+  const homeRoute = role ? ROLE_HOME[role] : '/auth/login';
 
-  // Redirect root to role home
+  // If user is at root, redirect to their home
   if (pathname === '/') {
     return NextResponse.redirect(new URL(homeRoute, req.url));
   }
 
-  // Guard MAGA dashboard
+  // If club_staff tries to access MAGA dashboard, redirect
   if (pathname.startsWith('/dashboard') && role !== 'maga_admin') {
     return NextResponse.redirect(new URL(homeRoute, req.url));
   }
 
-  // Guard club dashboard
+  // If maga_admin tries to access club dashboard, redirect
   if (pathname.startsWith('/club/dashboard') && role !== 'club_staff') {
     return NextResponse.redirect(new URL(homeRoute, req.url));
   }
