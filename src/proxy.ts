@@ -2,12 +2,25 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
 
-const PUBLIC_PATHS = ['/auth/login', '/auth/callback', '/auth/signout'];
+// Paths that handle their own auth client-side
+const BYPASS_PATHS = [
+  '/auth/login',
+  '/auth/callback',
+  '/auth/signout',
+  '/dashboard',
+  '/club/dashboard',
+  '/roster',
+  '/lineup',
+  '/scores',
+  '/standings',
+  '/meet',
+];
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next();
+  // Let these through — they handle auth themselves
+  if (BYPASS_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next();
   if (pathname.startsWith('/api/')) return NextResponse.next();
   if (pathname.startsWith('/_next/') || pathname.includes('.')) return NextResponse.next();
 
@@ -18,9 +31,7 @@ export async function proxy(req: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return req.cookies.getAll();
-        },
+        getAll() { return req.cookies.getAll(); },
         setAll(cookiesToSet: { name: string; value: string; options?: any }[]) {
           cookiesToSet.forEach(({ name, value, options }) => {
             res.cookies.set(name, value, options);
@@ -30,9 +41,6 @@ export async function proxy(req: NextRequest) {
     }
   );
 
-  // Use getSession() — reads directly from cookie, no network call
-  // getUser() makes a network call to verify with Supabase Auth server
-  // which can fail if the cookie hasn't fully propagated yet
   const { data: { session } } = await supabase.auth.getSession();
 
   if (!session) {
