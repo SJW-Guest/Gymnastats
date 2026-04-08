@@ -1,4 +1,4 @@
-// v2 - role-based redirect
+// v3 - debug club redirect
 'use client'
 import { useState } from 'react'
 
@@ -20,6 +20,7 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
+
     try {
       const { createBrowserClient } = await import('@supabase/ssr')
       const supabase = createBrowserClient(
@@ -27,26 +28,52 @@ export default function LoginPage() {
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       )
 
-      // Sign in
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password })
+      // Step 1: Sign in
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
       if (authError) {
+        console.error('[login] Auth error:', authError)
         setError(authError.message)
         setLoading(false)
         return
       }
 
-      // Look up role from users table
-      const { data: profile } = await supabase
+      if (!authData?.user) {
+        console.error('[login] No user returned')
+        setError('Sign in failed. Please try again.')
+        setLoading(false)
+        return
+      }
+
+      console.log('[login] Auth success, user id:', authData.user.id)
+
+      // Step 2: Look up role
+      const { data: profile, error: profileError } = await supabase
         .from('users')
-        .select('role')
+        .select('role, club_id')
         .eq('id', authData.user.id)
         .single()
 
+      if (profileError) {
+        console.error('[login] Profile error:', profileError)
+        // Fall back to dashboard if role lookup fails
+        window.location.href = '/dashboard'
+        return
+      }
+
+      console.log('[login] Profile:', profile)
+
       const role = profile?.role as string | undefined
       const destination = role ? (ROLE_HOME[role] ?? '/dashboard') : '/dashboard'
+
+      console.log('[login] Redirecting to:', destination)
       window.location.href = destination
 
-    } catch {
+    } catch (err) {
+      console.error('[login] Unexpected error:', err)
       setError('Something went wrong. Please try again.')
       setLoading(false)
     }
@@ -70,7 +97,7 @@ export default function LoginPage() {
             <input
               type="email"
               value={email}
-              onChange={e=>setEmail(e.target.value)}
+              onChange={e => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
               style={{padding:'10px 12px',border:'1.5px solid #e0e0e0',borderRadius:'8px',fontSize:'15px',color:'#0a0f1e',outline:'none'}}
@@ -81,7 +108,7 @@ export default function LoginPage() {
             <input
               type="password"
               value={password}
-              onChange={e=>setPassword(e.target.value)}
+              onChange={e => setPassword(e.target.value)}
               placeholder="••••••••"
               required
               style={{padding:'10px 12px',border:'1.5px solid #e0e0e0',borderRadius:'8px',fontSize:'15px',color:'#0a0f1e',outline:'none'}}
