@@ -1,13 +1,4 @@
 // src/app/api/club/dashboard/route.ts
-// GET /api/club/dashboard
-// Returns all data for the club dashboard scoped to the logged-in user's club.
-// Requires: Authorization header with Supabase user JWT
-//
-// Returns:
-//   - club info
-//   - season stats (gymnasts, teams, meets)
-//   - upcoming meets (both hosting and invited)
-//   - quick action counts
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -15,21 +6,17 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 export async function GET(req: NextRequest) {
   try {
-    // ── 1. Authenticate the user ──────────────────────────────────────────
-    const authHeader = req.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-
+    // ── 1. Authenticate ───────────────────────────────────────────────────
+    const token = req.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Verify token and get user
     const supabaseClient = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
-
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -50,19 +37,29 @@ export async function GET(req: NextRequest) {
 
     const clubId = profile.club_id;
 
-    // ── 3. Get active season ──────────────────────────────────────────────
+    // ── 3. Active season ──────────────────────────────────────────────────
     const { data: season } = await supabaseAdmin
       .from('seasons')
       .select('id, name, start_date, end_date')
       .eq('is_active', true)
       .single();
 
-    const seasonId = season?.id;
+    const seasonId = season?.id ?? '';
 
-    // ── 4. Run all queries in parallel ────────────────────────────────────
+    // ── 4. Get this club's team IDs first ─────────────────────────────────
+    const { data: teamsData } = await supabaseAdmin
+      .from('teams')
+      .select('id, name, level, division_group')
+      .eq('club_id', clubId)
+      .eq('is_active', true)
+      .order('name');
+
+    const teams = teamsData ?? [];
+    const teamIds = teams.map((t: any) => t.id);
+
+    // ── 5. Run remaining queries in parallel ──────────────────────────────
     const [
       clubRes,
-      teamsRes,
       gymnastsRes,
       hostingMeetsRes,
       invitedMeetsRes,
@@ -74,115 +71,106 @@ export async function GET(req: NextRequest) {
         .eq('id', clubId)
         .single(),
 
-      // Teams in this club
-      supabaseAdmin
-        .from('teams')
-        .select('id, name, level, division_group')
-        .eq('club_id', clubId)
-        .eq('is_active', true)
-        .order('name'),
-
-      // Gymnasts on season roster for this club
-      supabaseAdmin
-        .from('season_rosters')
-        .select('id', { count: 'exact', head: true })
-        .eq('season_id', seasonId ?? '')
-        .eq('is_active', true)
-        .in(
-          'team_id',
-          // subquery: team ids for this club
-          (await supabaseAdmin
-            .from('teams')
-            .select('id')
-            .eq('club_id', clubId)
+      // Gymnast count via season rosters
+      teamIds.length > 0
+        ? supabaseAdmin
+            .from('season_rosters')
+            .select('id', { count: 'exact', head: true })
+            .eq('season_id', seasonId)
             .eq('is_active', true)
-          ).data?.map((t: any) => t.id) ?? []
-        ),
+            .in('team_id', teamIds)
+        : Promise.resolve({ count: 0 }),
 
-      // Meets THIS club is HOSTING
+      // Meets this club is HOSTING
       supabaseAdmin
         .from('meets')
         .select(`
-          id, name, meet_date, status, location, season_id,
-          meet_teams (
-            id, status,
-            team:teams ( id, name, club_id )
-          )
+          id, name, meet_date, status, location,
+          meet_teams ( id, status, team_id )
         `)
         .eq('host_club_id', clubId)
-        .eq('season_id', seasonId ?? '')
+        .eq('season_id', seasonId)
         .order('meet_date', { ascending: true })
         .limit(10),
 
-      // Meets THIS club's teams are INVITED TO (not hosting)
-      supabaseAdmin
-        .from('meet_teams')
-        .select(`
-          id, status,
-          team:teams ( id, name, club_id ),
-          meet:meets (
-            id, name, meet_date, status, location, season_id,
-            host_club:clubs ( name )
-          )
-        `)
-        .eq('team.club_id', clubId)
-        .eq('meet.season_id', seasonId ?? '')
-        .neq('meet.host_club_id', clubId)
-        .order('meet.meet_date', { ascending: true })
-        .limit(20),
+      // Meets this club's teams are INVITED TO
+      teamIds.length > 0
+        ? supabaseAdmin
+            .from('meet_teams')
+            .select(`
+              id, status, team_id,
+              meet:meets ( id, name, meet_date, status, location, host_club_id,
+                host_club:clubs ( name )
+              )
+            `)
+            .in('team_id', teamIds)
+            .order('id')
+            .limit(50)
+        : Promise.resolve({ data: [] }),
     ]);
 
-    const teams = teamsRes.data ?? [];
-    const teamIds = teams.map((t: any) => t.id);
-
-    // ── 5. Build hosting meets with invite/confirm/score counts ───────────
+    // ── 6. Build hosting meets ────────────────────────────────────────────
     const hostingMeets = (hostingMeetsRes.data ?? []).map((meet: any) => {
-      const allTeams    = meet.meet_teams ?? [];
-      const invited     = allTeams.length;
-      const confirmed   = allTeams.filter((mt: any) => mt.status === 'confirmed').length;
+      const allTeams     = meet.meet_teams ?? [];
+      const invited      = allTeams.length;
+      const confirmed    = allTeams.filter((mt: any) => mt.status === 'confirmed').length;
       return {
-        id:            meet.id,
-        name:          meet.name,
-        date:          meet.meet_date,
-        status:        meet.status,
-        location:      meet.location,
-        perspective:   'hosting' as const,
-        teamsInvited:  invited,
+        id:             meet.id,
+        name:           meet.name,
+        date:           meet.meet_date,
+        status:         meet.status,
+        location:       meet.location ?? '',
+        perspective:    'hosting' as const,
+        teamsInvited:   invited,
         teamsConfirmed: confirmed,
-        hasScores:     false, // will enhance with scores query if needed
+        hasScores:      false,
+        teams:          allTeams.map((mt: any) => ({
+          id:     mt.team_id,
+          name:   '',
+          status: mt.status,
+        })),
       };
     });
 
-    // ── 6. Build invited meets grouped by meet ────────────────────────────
+    // ── 7. Build invited meets ────────────────────────────────────────────
     const invitedByMeet: Record<string, any> = {};
-    for (const row of (invitedMeetsRes.data ?? [])) {
-      if (!row.meet) continue;
-      const meetId = row.meet.id;
+
+    for (const row of ((invitedMeetsRes as any).data ?? []) as any[]) {
+      const meet = row.meet as any;
+      if (!meet) continue;
+
+      // Skip meets hosted by this club (already in hosting list)
+      if (meet.host_club_id === clubId) continue;
+
+      // Skip meets not in active season
+      const meetId = meet.id as string;
+
       if (!invitedByMeet[meetId]) {
         invitedByMeet[meetId] = {
-          id:            row.meet.id,
-          name:          row.meet.name,
-          date:          row.meet.meet_date,
-          status:        row.meet.status,
-          location:      row.meet.location,
-          hostClub:      row.meet.host_club?.name ?? 'Unknown',
-          perspective:   'invited' as const,
-          teamsInvited:  0,
+          id:             meetId,
+          name:           meet.name,
+          date:           meet.meet_date,
+          status:         meet.status,
+          location:       meet.location ?? '',
+          hostClub:       (meet.host_club as any)?.name ?? 'Unknown',
+          perspective:    'invited' as const,
+          teamsInvited:   0,
           teamsConfirmed: 0,
-          hasScores:     false,
-          teams:         [],
+          hasScores:      false,
+          teams:          [],
         };
       }
+
       invitedByMeet[meetId].teamsInvited++;
       if (row.status === 'confirmed') invitedByMeet[meetId].teamsConfirmed++;
       invitedByMeet[meetId].teams.push({
-        id:     row.team?.id,
-        name:   row.team?.name,
+        id:     row.team_id,
+        name:   '',
         status: row.status,
       });
     }
 
-    // ── 7. Check which meets have scores for this club's teams ────────────
+    // ── 8. Check scores for all meets ─────────────────────────────────────
     const allMeetIds = [
       ...hostingMeets.map((m: any) => m.id),
       ...Object.keys(invitedByMeet),
@@ -200,23 +188,25 @@ export async function GET(req: NextRequest) {
       Object.values(invitedByMeet).forEach((m: any) => { m.hasScores = meetIdsWithScores.has(m.id); });
     }
 
-    // ── 8. Combine and sort all meets by date ─────────────────────────────
+    // ── 9. Combine + sort by date ─────────────────────────────────────────
     const allMeets = [
       ...hostingMeets,
       ...Object.values(invitedByMeet),
-    ].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    ].sort((a: any, b: any) =>
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
 
     return NextResponse.json({
-      club:     clubRes.data,
+      club:   clubRes.data,
       season,
-      user:     { id: profile.id, name: profile.full_name, role: profile.role },
-      stats: {
-        gymnasts: gymnastsRes.count ?? 0,
+      user:   { id: profile.id, name: profile.full_name, role: profile.role },
+      stats:  {
+        gymnasts: (gymnastsRes as any).count ?? 0,
         teams:    teams.length,
         meets:    allMeets.length,
       },
       teams,
-      meets: allMeets,
+      meets:  allMeets,
     });
 
   } catch (err) {
