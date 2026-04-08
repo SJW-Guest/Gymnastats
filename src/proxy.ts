@@ -1,6 +1,4 @@
 // src/proxy.ts
-// Auth + role-based routing for Next.js 16
-// Replaces middleware.ts — export must be named "proxy"
 
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
@@ -16,24 +14,12 @@ const ROLE_HOME: Record<string, string> = {
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Allow public paths through
-  if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) {
-    return NextResponse.next();
-  }
-
-  // Allow API routes to handle their own auth
-  if (pathname.startsWith('/api/')) {
-    return NextResponse.next();
-  }
-
-  // Allow static files
-  if (pathname.startsWith('/_next/') || pathname.includes('.')) {
-    return NextResponse.next();
-  }
+  if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next();
+  if (pathname.startsWith('/api/')) return NextResponse.next();
+  if (pathname.startsWith('/_next/') || pathname.includes('.')) return NextResponse.next();
 
   const res = NextResponse.next();
 
-  // Create Supabase SSR client using cookies
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -42,7 +28,7 @@ export async function proxy(req: NextRequest) {
         getAll() {
           return req.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: { name: string; value: string; options?: any }[]) {
           cookiesToSet.forEach(({ name, value, options }) => {
             res.cookies.set(name, value, options);
           });
@@ -53,14 +39,12 @@ export async function proxy(req: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Not logged in → redirect to login
   if (!user) {
     const loginUrl = new URL('/auth/login', req.url);
     loginUrl.searchParams.set('redirectTo', pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // Get user role
   const { data: profile } = await supabase
     .from('users')
     .select('role')
@@ -70,17 +54,12 @@ export async function proxy(req: NextRequest) {
   const role = profile?.role as string | undefined;
   const homeRoute = role ? (ROLE_HOME[role] ?? '/auth/login') : '/auth/login';
 
-  // Redirect root to role home
-  if (pathname === '/') {
-    return NextResponse.redirect(new URL(homeRoute, req.url));
-  }
+  if (pathname === '/') return NextResponse.redirect(new URL(homeRoute, req.url));
 
-  // Guard MAGA dashboard
   if (pathname.startsWith('/dashboard') && role !== 'maga_admin') {
     return NextResponse.redirect(new URL(homeRoute, req.url));
   }
 
-  // Guard club dashboard
   if (pathname.startsWith('/club/dashboard') && role !== 'club_staff') {
     return NextResponse.redirect(new URL(homeRoute, req.url));
   }
