@@ -1,7 +1,6 @@
 // src/app/api/teams/route.ts
 // GET /api/teams
 // Returns all active teams across all MAGA clubs, with club name attached.
-// Used by meet creation Step 2 to populate team selection.
 
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -13,6 +12,7 @@ export async function GET() {
       .select(`
         id,
         name,
+        division_group,
         level,
         age_group,
         is_active,
@@ -32,11 +32,10 @@ export async function GET() {
       );
     }
 
-    // Flatten for easy consumption by the frontend
     const teams = (data ?? []).map((t: any) => ({
       id: t.id,
       name: t.name,
-      level: t.level ?? null,
+      level: t.level ?? t.division_group ?? null,
       ageGroup: t.age_group ?? null,
       clubId: t.club?.id ?? null,
       clubName: t.club?.name ?? 'Unknown Club',
