@@ -142,7 +142,7 @@ export async function POST(
   if (meet.status === 'setup') {
     const { error: statusError } = await supabaseAdmin
       .from('meets')
-      .update({ status: 'scheduled' })
+      .update({ status: 'active' })
       .eq('id', meetId);
 
     if (statusError) {
