@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
   // Get the user's club and active season
   const { data: profile, error: profileError } = await supabase
     .from('users')
-    .select('club_id')
+    .select('club_id, association_id')
     .eq('id', user.id)
     .single()
 
@@ -73,11 +73,19 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { data: season, error: seasonError } = await supabase
+  let seasonQuery = supabase
     .from('seasons')
     .select('id')
     .eq('is_active', true)
-    .single()
+
+  if (profile.association_id) {
+    seasonQuery = seasonQuery.eq('association_id', profile.association_id)
+  }
+
+  const { data: season, error: seasonError } = await seasonQuery
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   if (seasonError || !season) {
     return NextResponse.json(
