@@ -1,5 +1,4 @@
 // @ts-nocheck
-// @ts-nocheck
 'use client'
 import { useEffect, useState, useCallback } from 'react'
 
@@ -32,7 +31,8 @@ export default function LineupPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [userName, setUserName] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string | null>(null)
 
   useEffect(() => {
     async function init() {
@@ -40,6 +40,9 @@ export default function LineupPage() {
       const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { window.location.href = '/auth/login'; return }
+      const { data: userData } = await supabase.from('users').select('full_name, role, club_id').eq('id', user.id).single()
+      setUserName(userData?.full_name ?? null)
+      setUserRole(userData?.role ?? null)
       const [{ data: m }, { data: t }] = await Promise.all([
         supabase.from('meets').select('id, name, meet_date, status').order('meet_date', { ascending: false }).limit(10),
         supabase.from('teams').select('id, name, division_group').eq('is_active', true).order('name'),
@@ -57,16 +60,13 @@ export default function LineupPage() {
     if (!meetId || !teamId) return
     const { createBrowserClient } = await import('@supabase/ssr')
     const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-
     const [{ data: gymnasts }, { data: lineupData }] = await Promise.all([
       supabase.from('gymnasts').select('id, first_name, last_name, age_group, current_team_id').eq('current_team_id', teamId).eq('is_active', true).order('last_name'),
       supabase.from('meet_lineups').select('gymnast_id, running_order, status, scratch_reason').eq('meet_id', meetId).eq('team_id', teamId),
     ])
-
     const team = teams.find(t => t.id === teamId)
     const lineupMap: Record<string, {running_order: number; status: string; scratch_reason?: string}> = {}
     for (const l of (lineupData ?? [])) lineupMap[l.gymnast_id] = l
-
     const entries: LineupEntry[] = (gymnasts ?? []).map(g => ({
       gymnast_id: g.id,
       first_name: g.first_name,
@@ -78,7 +78,6 @@ export default function LineupPage() {
       scratch_reason: lineupMap[g.id]?.scratch_reason,
       is_in_lineup: !!lineupMap[g.id],
     })).sort((a, b) => a.running_order - b.running_order)
-
     setRoster(gymnasts ?? [])
     setLineup(entries)
   }, [teams])
@@ -121,27 +120,18 @@ export default function LineupPage() {
     setSaving(true)
     const { createBrowserClient } = await import('@supabase/ssr')
     const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-
-    // Delete existing lineup for this meet+team
     await supabase.from('meet_lineups').delete().eq('meet_id', selectedMeet).eq('team_id', selectedTeam)
-
-    // Insert new lineup
     const rows = lineup.map(e => ({
-      meet_id: selectedMeet,
-      team_id: selectedTeam,
-      gymnast_id: e.gymnast_id,
-      age_group: e.age_group,
-      running_order: e.running_order,
-      status: e.status,
-      scratch_reason: e.scratch_reason ?? null,
+      meet_id: selectedMeet, team_id: selectedTeam, gymnast_id: e.gymnast_id,
+      age_group: e.age_group, running_order: e.running_order,
+      status: e.status, scratch_reason: e.scratch_reason ?? null,
     }))
-
     if (rows.length > 0) await supabase.from('meet_lineups').insert(rows)
-    setSaving(false)
-    setSaved(true)
+    setSaving(false); setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
 
+  const dashboardPath = userRole === 'maga_admin' ? '/maga/dashboard' : '/club/dashboard'
   const meet = meets.find(m => m.id === selectedMeet)
   const isLocked = meet?.status === 'finalized'
   const activeCount = lineup.filter(e => e.status === 'active').length
@@ -153,13 +143,16 @@ export default function LineupPage() {
     <div style={s.page}>
       <nav style={s.nav}>
         <div style={s.navLeft}>
-          <button onClick={() => window.location.href = '/dashboard'} style={s.backBtn}>← Dashboard</button>
+          <button onClick={() => window.location.href = dashboardPath} style={s.backBtn}>← Dashboard</button>
           <div style={s.navLogo}>
             <div style={s.logoMark}>G</div>
             <span style={s.logoText}>Gymnastats</span>
           </div>
         </div>
-        <button onClick={async () => { const { createBrowserClient } = await import('@supabase/ssr'); const sb = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!); await sb.auth.signOut(); window.location.href = '/auth/login' }} style={s.signOutBtn}>Sign out</button>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          {userName && <span style={{color:'#94a3b8',fontSize:13}}>{userName}</span>}
+          <button onClick={async () => { const { createBrowserClient } = await import('@supabase/ssr'); const sb = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!); await sb.auth.signOut(); window.location.href = '/auth/login' }} style={s.signOutBtn}>Sign out</button>
+        </div>
       </nav>
 
       <main style={s.main}>
@@ -198,7 +191,6 @@ export default function LineupPage() {
             <span style={s.colStatus}>Status</span>
             {!isLocked && <span style={s.colActions}>Order</span>}
           </div>
-
           {lineup.length === 0 ? (
             <div style={s.empty}>No gymnasts in lineup yet. Add from the roster below.</div>
           ) : lineup.map((entry, idx) => (

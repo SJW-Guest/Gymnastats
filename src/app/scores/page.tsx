@@ -1,5 +1,4 @@
 // @ts-nocheck
-// @ts-nocheck
 'use client'
 import { useEffect, useState, useCallback } from 'react'
 
@@ -35,6 +34,8 @@ export default function ScoreEntryPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [pendingScores, setPendingScores] = useState<Record<string, string>>({})
+  const [userName, setUserName] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string | null>(null)
 
   useEffect(() => {
     async function loadMeets() {
@@ -42,6 +43,9 @@ export default function ScoreEntryPage() {
       const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { window.location.href = '/auth/login'; return }
+      const { data: userData } = await supabase.from('users').select('full_name, role').eq('id', user.id).single()
+      setUserName(userData?.full_name ?? null)
+      setUserRole(userData?.role ?? null)
       const { data } = await supabase.from('meets').select('id, name, meet_date, status').in('status', ['setup', 'active']).order('meet_date', { ascending: false })
       setMeets(data ?? [])
       if (data && data.length > 0) setSelectedMeet(data[0].id)
@@ -73,24 +77,12 @@ export default function ScoreEntryPage() {
     const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
     const score = parseFloat(value)
     if (!dnc && (isNaN(score) || score < 0 || score > 10)) { setSaving(null); return }
-
     const existing = lineup.find(l => l.gymnast_id === gymnast_id)?.score
-    const update: Record<string, unknown> = {
-      meet_id: selectedMeet, gymnast_id,
-      updated_at: new Date().toISOString(),
-    }
-
-    // Preserve existing scores for other events
+    const update: Record<string, unknown> = { meet_id: selectedMeet, gymnast_id, updated_at: new Date().toISOString() }
     EVENTS.forEach(ev => {
-      if (ev === selectedEvent) {
-        update[ev] = dnc ? null : score
-        update[`${ev}_dnc`] = dnc
-      } else {
-        update[ev] = existing?.[ev as keyof typeof existing] ?? null
-        update[`${ev}_dnc`] = existing?.[`${ev}_dnc` as keyof typeof existing] ?? false
-      }
+      if (ev === selectedEvent) { update[ev] = dnc ? null : score; update[`${ev}_dnc`] = dnc }
+      else { update[ev] = existing?.[ev as keyof typeof existing] ?? null; update[`${ev}_dnc`] = existing?.[`${ev}_dnc` as keyof typeof existing] ?? false }
     })
-
     await supabase.from('scores').upsert(update, { onConflict: 'meet_id,gymnast_id' })
     await loadLineup(selectedMeet)
     setPendingScores(p => { const n = {...p}; delete n[gymnast_id]; return n })
@@ -100,21 +92,17 @@ export default function ScoreEntryPage() {
   function getScore(entry: LineupEntry, event: Event): number | null {
     return entry.score?.[event as keyof typeof entry.score] as number | null ?? null
   }
-
   function isDnc(entry: LineupEntry, event: Event): boolean {
     return entry.score?.[`${event}_dnc` as keyof typeof entry.score] as boolean ?? false
   }
-
   function calcAA(entry: LineupEntry): string {
     let total = 0; let count = 0
-    EVENTS.forEach(ev => {
-      const val = getScore(entry, ev)
-      if (val != null && !isDnc(entry, ev)) { total += val; count++ }
-    })
+    EVENTS.forEach(ev => { const val = getScore(entry, ev); if (val != null && !isDnc(entry, ev)) { total += val; count++ } })
     if (count === 0) return '—'
     return total.toFixed(2) + (count < 4 ? ` (${count}/4)` : '')
   }
 
+  const dashboardPath = userRole === 'maga_admin' ? '/maga/dashboard' : '/club/dashboard'
   const activeLineup = lineup.filter(l => l.status === 'active')
   const scratched = lineup.filter(l => l.status === 'scratched')
 
@@ -124,18 +112,20 @@ export default function ScoreEntryPage() {
     <div style={s.page}>
       <nav style={s.nav}>
         <div style={s.navLeft}>
-          <button onClick={() => window.location.href = '/dashboard'} style={s.backBtn}>← Dashboard</button>
+          <button onClick={() => window.location.href = dashboardPath} style={s.backBtn}>← Dashboard</button>
           <div style={s.navLogo}>
             <div style={s.logoMark}>G</div>
             <span style={s.logoText}>Gymnastats</span>
           </div>
         </div>
-        <button onClick={async () => { const { createBrowserClient } = await import('@supabase/ssr'); const sb = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!); await sb.auth.signOut(); window.location.href = '/auth/login' }} style={s.signOutBtn}>Sign out</button>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          {userName && <span style={{color:'#94a3b8',fontSize:13}}>{userName}</span>}
+          <button onClick={async () => { const { createBrowserClient } = await import('@supabase/ssr'); const sb = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!); await sb.auth.signOut(); window.location.href = '/auth/login' }} style={s.signOutBtn}>Sign out</button>
+        </div>
       </nav>
 
       <main style={s.main}>
         <h1 style={s.h1}>Score entry</h1>
-
         <div style={s.controls}>
           <div style={s.field}>
             <label style={s.label}>Meet</label>
@@ -159,20 +149,16 @@ export default function ScoreEntryPage() {
         {meets.length === 0 ? (
           <div style={s.emptyState}>
             <p style={s.emptyText}>No active meets. Create a meet from the dashboard first.</p>
-            <button onClick={() => window.location.href = '/dashboard'} style={s.primaryBtn}>Go to dashboard</button>
+            <button onClick={() => window.location.href = dashboardPath} style={s.primaryBtn}>Go to dashboard</button>
           </div>
         ) : (
           <>
             <div style={s.tableWrap}>
               <div style={s.tableHead}>
-                <span>#</span>
-                <span>Gymnast</span>
-                <span>Team</span>
-                <span>Age</span>
+                <span>#</span><span>Gymnast</span><span>Team</span><span>Age</span>
                 <span style={{textAlign:'center'}}>{EVENT_LABELS[selectedEvent]}</span>
                 <span style={{textAlign:'right'}}>All-Around</span>
               </div>
-
               {activeLineup.length === 0 ? (
                 <div style={s.empty}>No lineup set for this meet. Go to Lineup Manager first.</div>
               ) : activeLineup.map(entry => {
@@ -181,20 +167,18 @@ export default function ScoreEntryPage() {
                 const pendingKey = entry.gymnast_id
                 const pendingVal = pendingScores[pendingKey]
                 const isSaving = saving === entry.gymnast_id
-
                 return (
                   <div key={entry.id} style={s.tableRow}>
                     <span style={s.orderNum}>{entry.running_order}</span>
-                    <span style={s.gymnName}>{(entry.gymnasts as unknown as {first_name:string,last_name:string})?.last_name}, {(entry.gymnasts as unknown as {first_name:string,last_name:string})?.first_name}</span>
-                    <span style={s.cell}>{(entry.teams as unknown as {name:string})?.name}</span>
+                    <span style={s.gymnName}>{(entry.gymnasts as any)?.last_name}, {(entry.gymnasts as any)?.first_name}</span>
+                    <span style={s.cell}>{(entry.teams as any)?.name}</span>
                     <span style={s.cell}>{entry.age_group}</span>
                     <div style={s.scoreCell}>
                       {dnc ? (
                         <div style={s.dncBadge}>DNC <button onClick={() => saveScore(entry.gymnast_id, '', false)} style={s.dncUndo}>undo</button></div>
                       ) : (
                         <div style={s.scoreInput}>
-                          <input
-                            type="number" step="0.05" min="0" max="10"
+                          <input type="number" step="0.05" min="0" max="10"
                             value={pendingVal ?? (currentScore?.toFixed(2) ?? '')}
                             onChange={e => setPendingScores(p => ({...p, [pendingKey]: e.target.value}))}
                             onBlur={() => { if (pendingVal) saveScore(entry.gymnast_id, pendingVal, false) }}
@@ -212,20 +196,18 @@ export default function ScoreEntryPage() {
                 )
               })}
             </div>
-
             {scratched.length > 0 && (
               <div style={s.scratchedSection}>
                 <div style={s.scratchedLabel}>Scratched ({scratched.length})</div>
                 {scratched.map(entry => (
                   <div key={entry.id} style={s.scratchedRow}>
                     <span style={s.orderNum}>{entry.running_order}</span>
-                    <span style={{...s.gymnName, opacity: 0.5, textDecoration: 'line-through'}}>{(entry.gymnasts as unknown as {first_name:string,last_name:string})?.last_name}, {(entry.gymnasts as unknown as {first_name:string,last_name:string})?.first_name}</span>
-                    <span style={{...s.cell, opacity: 0.5}}>{(entry.teams as unknown as {name:string})?.name}</span>
+                    <span style={{...s.gymnName, opacity:0.5, textDecoration:'line-through'}}>{(entry.gymnasts as any)?.last_name}, {(entry.gymnasts as any)?.first_name}</span>
+                    <span style={{...s.cell, opacity:0.5}}>{(entry.teams as any)?.name}</span>
                   </div>
                 ))}
               </div>
             )}
-
             <div style={s.hint}>Tab between fields or press Enter to save. Click DNC to mark did-not-compete.</div>
           </>
         )}

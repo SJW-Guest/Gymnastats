@@ -33,7 +33,7 @@ const NAV_ITEMS = [
   { key: 'roster',     label: 'Manage Roster',    href: '/roster' },
   { key: 'lineup',     label: 'Lineup Manager',   href: '/lineup' },
   { key: 'scores',     label: 'Score Entry',      href: '/scores' },
-  { key: 'standings',  label: 'Season Standings', href: '/standings' },
+  { key: 'standings', label: 'Season Standings', href: '/club/standings' },
 ];
 
 function ClubDashboardInner() {
