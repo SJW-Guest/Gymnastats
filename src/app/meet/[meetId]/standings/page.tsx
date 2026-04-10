@@ -59,19 +59,23 @@ const NAV_ITEMS = [
 
 const AGE_GROUP_ORDER = ['Novice', 'Children', 'Junior', 'Senior']
 
-function fmt(n: number | null, dnc?: boolean): string {
+function fmt(n: number | null | undefined, dnc?: boolean): string {
   if (dnc) return 'DNC'
   if (n === null || n === undefined) return '—'
   return Number(n).toFixed(3)
 }
 
 function ranked<T extends Record<string, any>>(items: T[], key: string): (T & { rank: number })[] {
-  const sorted = [...items].sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0))
+  const sorted = [...items].filter(i => i[key] != null).sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0))
   let rank = 1
   return sorted.map((item, i) => {
     if (i > 0 && (item[key] ?? 0) < (sorted[i-1][key] ?? 0)) rank = i + 1
     return { ...item, rank }
   })
+}
+
+function getDncForEvent(g: GymnastStanding, ev: Event): boolean {
+  return g[`${ev}_dnc` as keyof GymnastStanding] as boolean || false
 }
 
 function Medal({ rank }: { rank: number }) {
@@ -81,44 +85,22 @@ function Medal({ rank }: { rank: number }) {
   return <span style={{fontSize:13,fontWeight:600,color:'#6b7280'}}>#{rank}</span>
 }
 
-function AgeGroupBlock({ label, gymnasts, cols }: {
-  label: string
-  gymnasts: (GymnastStanding & { rank: number; displayScore: number | null; displayDnc?: boolean })[]
-  cols: { key: string; label: string; color?: string }[]
-}) {
-  if (gymnasts.length === 0) return null
+// Division header bar
+function DivisionHeader({ name }: { name: string }) {
   return (
-    <div style={{marginBottom:24}}>
-      <div style={{padding:'6px 12px',backgroundColor:'#f3f4f6',borderRadius:'8px 8px 0 0',borderBottom:'1px solid #e5e7eb'}}>
-        <span style={{fontSize:12,fontWeight:600,color:'#374151',textTransform:'uppercase',letterSpacing:'0.05em'}}>{label}</span>
-      </div>
-      <div style={{border:'1px solid #e5e7eb',borderTop:'none',borderRadius:'0 0 8px 8px',overflow:'hidden'}}>
-        {gymnasts.map((g, i) => (
-          <div key={g.gymnast_id + (g as any).event} style={{
-            display:'grid',
-            gridTemplateColumns:`48px 2fr ${cols.map(()=>'80px').join(' ')} 100px`,
-            gap:8,padding:'10px 12px',alignItems:'center',
-            borderBottom: i < gymnasts.length-1 ? '1px solid #f3f4f6' : 'none',
-            backgroundColor: g.rank===1?'#fffbeb':g.rank===2?'#f8fafc':g.rank===3?'#fff7f0':'#fff',
-          }}>
-            <div style={{display:'flex',alignItems:'center',justifyContent:'center'}}>
-              <Medal rank={g.rank} />
-            </div>
-            <div>
-              <div style={{fontSize:14,fontWeight:500,color:'#111827'}}>{g.gymnast_first_name} {g.gymnast_last_name}</div>
-              <div style={{fontSize:11,color:'#9ca3af'}}>{g.team_name}</div>
-            </div>
-            {cols.map(col => (
-              <div key={col.key} style={{textAlign:'right',fontSize:13,color:col.color??'#374151'}}>
-                {(g as any)[col.key] !== undefined ? fmt((g as any)[col.key], (g as any)[col.key+'_dnc']) : '—'}
-              </div>
-            ))}
-            <div style={{textAlign:'right',fontSize:15,fontWeight:700,color:'#111827'}}>
-              {g.displayDnc ? 'DNC' : fmt(g.displayScore)}
-            </div>
-          </div>
-        ))}
-      </div>
+    <div style={{padding:'8px 16px',backgroundColor:'#111827',borderRadius:'10px 10px 0 0',marginBottom:0}}>
+      <span style={{fontSize:12,fontWeight:700,color:'#fff',textTransform:'uppercase',letterSpacing:'0.08em'}}>
+        {name} Division
+      </span>
+    </div>
+  )
+}
+
+// Age group sub-header
+function AgeGroupHeader({ label }: { label: string }) {
+  return (
+    <div style={{padding:'5px 12px',backgroundColor:'#f3f4f6',borderBottom:'1px solid #e5e7eb'}}>
+      <span style={{fontSize:11,fontWeight:600,color:'#374151',textTransform:'uppercase',letterSpacing:'0.05em'}}>{label}</span>
     </div>
   )
 }
@@ -169,12 +151,16 @@ export default function MeetStandingsPage() {
   const isHost = meet !== null && userClubId !== null && userClubId === meet.host_club_id
   const dashboardPath = userRole === 'maga_admin' ? '/maga/dashboard' : '/club/dashboard'
 
+  // All unique divisions in order they appear, null = no division
+  const hasDivisions = gymnasts.some(g => g.division_name) || teams.some(t => t.division_name)
+  const divisions = hasDivisions
+    ? Array.from(new Set([
+        ...teams.map(t => t.division_name),
+        ...gymnasts.map(g => g.division_name),
+      ].filter(Boolean) as string[])).sort()
+    : [null]
+
   const ageGroups = AGE_GROUP_ORDER.filter(ag => gymnasts.some(g => g.age_group === ag))
-  const divisions = Array.from(new Set([
-    ...gymnasts.map(g => g.division_name),
-    ...teams.map(t => t.division_name),
-  ].filter(Boolean) as string[])).sort()
-  const hasDivisions = divisions.length > 0
 
   if (loading) return <div style={s.page}><div style={s.center}><div style={s.spinner}/></div></div>
   if (error || !meet) return (
@@ -228,20 +214,22 @@ export default function MeetStandingsPage() {
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12,marginBottom:4}}>
             <div>
               <h1 style={s.pageTitle}>Meet Standings</h1>
-              <p style={s.pageSub}>{gymnasts.length} gymnasts scored · {teams.length} teams</p>
+              <p style={s.pageSub}>{gymnasts.length} gymnasts scored · {teams.length} teams{hasDivisions ? ` · ${divisions.length} divisions` : ''}</p>
             </div>
           </div>
 
           {/* Tab bar */}
           <div style={{display:'flex',gap:0,borderRadius:10,overflow:'hidden',border:'1px solid #e5e7eb',width:'fit-content',marginBottom:8}}>
             {([
-              { key:'team', label:'Team' },
+              { key:'team',      label:'Team' },
               { key:'allaround', label:'All-Around' },
-              { key:'events', label:'Events' },
+              { key:'events',    label:'Events' },
             ] as {key:Tab,label:string}[]).map(t => (
               <button key={t.key} onClick={()=>setTab(t.key)}
-                style={{padding:'9px 20px',border:'none',background:tab===t.key?'#111827':'#fff',
-                  fontSize:14,fontWeight:500,color:tab===t.key?'#fff':'#6b7280',cursor:'pointer'}}>
+                style={{padding:'9px 20px',border:'none',
+                  background:tab===t.key?'#111827':'#fff',
+                  fontSize:14,fontWeight:500,
+                  color:tab===t.key?'#fff':'#6b7280',cursor:'pointer'}}>
                 {t.label}
               </button>
             ))}
@@ -253,112 +241,178 @@ export default function MeetStandingsPage() {
               <p style={{fontSize:13,color:'#9ca3af',margin:'0 0 16px'}}>Standings will appear here once scores are entered.</p>
               {isHost && <button style={s.goBtn} onClick={()=>router.push(`/meet/${meetId}/scores`)}>Go to Score Entry →</button>}
             </div>
+
           ) : tab === 'team' ? (
-            // ── TEAM TAB ──────────────────────────────────────────────────
-            <div style={s.card}>
-              <div style={{display:'grid',gridTemplateColumns:'48px 2fr 80px 80px 80px 80px 110px',gap:8,padding:'6px 12px',fontSize:11,fontWeight:600,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:4}}>
-                <span>Rank</span><span>Team</span>
-                <span style={{textAlign:'right',color:EVENT_COLORS.vault}}>Vault</span>
-                <span style={{textAlign:'right',color:EVENT_COLORS.bars}}>Bars</span>
-                <span style={{textAlign:'right',color:EVENT_COLORS.beam}}>Beam</span>
-                <span style={{textAlign:'right',color:EVENT_COLORS.floor}}>Floor</span>
-                <span style={{textAlign:'right'}}>Team Total</span>
-              </div>
-              <div style={{fontSize:10,color:'#9ca3af',padding:'0 12px 8px',borderBottom:'1px solid #f3f4f6',marginBottom:4}}>
-                Top 4 scores per event · {hasDivisions ? 'grouped by division' : 'all teams'}
-              </div>
-              {ranked(teams, 'team_total').map(team => (
-                <div key={team.team_id} style={{
-                  display:'grid',gridTemplateColumns:'48px 2fr 80px 80px 80px 80px 110px',
-                  gap:8,padding:'12px',borderRadius:8,alignItems:'center',
-                  borderBottom:'1px solid #f3f4f6',
-                  backgroundColor:team.rank===1?'#fffbeb':team.rank===2?'#f8fafc':team.rank===3?'#fff7f0':'#fff',
-                }}>
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'center'}}>
-                    <Medal rank={team.rank} />
-                  </div>
-                  <div>
-                    <div style={{fontSize:14,fontWeight:500,color:'#111827'}}>{team.team_name}</div>
-                    {team.division_name && <div style={{fontSize:11,color:'#9ca3af'}}>{team.division_name}</div>}
-                    <div style={{fontSize:11,color:'#9ca3af'}}>{team.gymnast_count} gymnasts</div>
-                  </div>
-                  <div style={{textAlign:'right',fontSize:13,color:EVENT_COLORS.vault}}>{fmt(team.vault_top4)}</div>
-                  <div style={{textAlign:'right',fontSize:13,color:EVENT_COLORS.bars}}>{fmt(team.bars_top4)}</div>
-                  <div style={{textAlign:'right',fontSize:13,color:EVENT_COLORS.beam}}>{fmt(team.beam_top4)}</div>
-                  <div style={{textAlign:'right',fontSize:13,color:EVENT_COLORS.floor}}>{fmt(team.floor_top4)}</div>
-                  <div style={{textAlign:'right',fontSize:16,fontWeight:700,color:'#111827'}}>{fmt(team.team_total)}</div>
-                </div>
-              ))}
-            </div>
-          ) : tab === 'allaround' ? (
-            // ── ALL-AROUND TAB — ranked by AA within each age group ────────
-            <div>
-              {ageGroups.map(ag => {
-                const agGymnasts = gymnasts.filter(g => g.age_group === ag)
-                const rankedAg = ranked(agGymnasts, 'all_around').map(g => ({
-                  ...g, displayScore: g.all_around, displayDnc: false,
-                }))
+            // ── TEAM TAB: Division → ranked teams ───────────────────────
+            <div style={{display:'flex',flexDirection:'column',gap:20}}>
+              {divisions.map(div => {
+                const divTeams = ranked(
+                  teams.filter(t => div === null ? !t.division_name : t.division_name === div),
+                  'team_total'
+                )
+                if (divTeams.length === 0) return null
                 return (
-                  <AgeGroupBlock key={ag} label={ag} gymnasts={rankedAg} cols={[
-                    { key:'vault', label:'Vault', color:EVENT_COLORS.vault },
-                    { key:'bars',  label:'Bars',  color:EVENT_COLORS.bars  },
-                    { key:'beam',  label:'Beam',  color:EVENT_COLORS.beam  },
-                    { key:'floor', label:'Floor', color:EVENT_COLORS.floor },
-                  ]} />
+                  <div key={div??'nodiv'}>
+                    {hasDivisions && div && <DivisionHeader name={div} />}
+                    <div style={{border:'1px solid #e5e7eb',borderTop: hasDivisions && div ? 'none' : '1px solid #e5e7eb',borderRadius: hasDivisions && div ? '0 0 10px 10px' : 10,overflow:'hidden',backgroundColor:'#fff'}}>
+                      <div style={{display:'grid',gridTemplateColumns:'48px 2fr 80px 80px 80px 80px 110px',gap:8,padding:'6px 12px',fontSize:11,fontWeight:600,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.05em',borderBottom:'1px solid #f3f4f6'}}>
+                        <span>Rank</span><span>Team</span>
+                        <span style={{textAlign:'right',color:EVENT_COLORS.vault}}>Vault</span>
+                        <span style={{textAlign:'right',color:EVENT_COLORS.bars}}>Bars</span>
+                        <span style={{textAlign:'right',color:EVENT_COLORS.beam}}>Beam</span>
+                        <span style={{textAlign:'right',color:EVENT_COLORS.floor}}>Floor</span>
+                        <span style={{textAlign:'right'}}>Total</span>
+                      </div>
+                      <div style={{fontSize:10,color:'#9ca3af',padding:'4px 12px 6px',borderBottom:'1px solid #f3f4f6'}}>Top 4 scores per event</div>
+                      {divTeams.map(team => (
+                        <div key={team.team_id} style={{
+                          display:'grid',gridTemplateColumns:'48px 2fr 80px 80px 80px 80px 110px',
+                          gap:8,padding:'12px',alignItems:'center',
+                          borderBottom:'1px solid #f3f4f6',
+                          backgroundColor:team.rank===1?'#fffbeb':team.rank===2?'#f8fafc':team.rank===3?'#fff7f0':'#fff',
+                        }}>
+                          <div style={{display:'flex',alignItems:'center',justifyContent:'center'}}><Medal rank={team.rank}/></div>
+                          <div>
+                            <div style={{fontSize:14,fontWeight:500,color:'#111827'}}>{team.team_name}</div>
+                            <div style={{fontSize:11,color:'#9ca3af'}}>{team.gymnast_count} gymnasts</div>
+                          </div>
+                          <div style={{textAlign:'right',fontSize:13,color:EVENT_COLORS.vault}}>{fmt(team.vault_top4)}</div>
+                          <div style={{textAlign:'right',fontSize:13,color:EVENT_COLORS.bars}}>{fmt(team.bars_top4)}</div>
+                          <div style={{textAlign:'right',fontSize:13,color:EVENT_COLORS.beam}}>{fmt(team.beam_top4)}</div>
+                          <div style={{textAlign:'right',fontSize:13,color:EVENT_COLORS.floor}}>{fmt(team.floor_top4)}</div>
+                          <div style={{textAlign:'right',fontSize:16,fontWeight:700,color:'#111827'}}>{fmt(team.team_total)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )
               })}
             </div>
+
+          ) : tab === 'allaround' ? (
+            // ── ALL-AROUND TAB: Division → Age Group → gymnasts by AA ────
+            <div style={{display:'flex',flexDirection:'column',gap:20}}>
+              {divisions.map(div => {
+                const divGymnasts = gymnasts.filter(g => div === null ? !g.division_name : g.division_name === div)
+                const divAgeGroups = AGE_GROUP_ORDER.filter(ag => divGymnasts.some(g => g.age_group === ag))
+                if (divGymnasts.length === 0) return null
+                return (
+                  <div key={div??'nodiv'}>
+                    {hasDivisions && div && <DivisionHeader name={div} />}
+                    <div style={{border:'1px solid #e5e7eb',borderTop: hasDivisions && div ? 'none' : '1px solid #e5e7eb',borderRadius: hasDivisions && div ? '0 0 10px 10px' : 10,overflow:'hidden'}}>
+                      {divAgeGroups.map((ag, agi) => {
+                        const agGymnasts = ranked(divGymnasts.filter(g => g.age_group === ag), 'all_around')
+                        if (agGymnasts.length === 0) return null
+                        return (
+                          <div key={ag}>
+                            <AgeGroupHeader label={ag} />
+                            {agGymnasts.map((g, i) => (
+                              <div key={g.gymnast_id} style={{
+                                display:'grid',gridTemplateColumns:'48px 2fr 80px 80px 80px 80px 100px',
+                                gap:8,padding:'10px 12px',alignItems:'center',
+                                borderBottom: i < agGymnasts.length-1 || agi < divAgeGroups.length-1 ? '1px solid #f3f4f6' : 'none',
+                                backgroundColor:g.rank===1?'#fffbeb':g.rank===2?'#f8fafc':g.rank===3?'#fff7f0':'#fff',
+                              }}>
+                                <div style={{display:'flex',alignItems:'center',justifyContent:'center'}}><Medal rank={g.rank}/></div>
+                                <div>
+                                  <div style={{fontSize:14,fontWeight:500,color:'#111827'}}>{g.gymnast_first_name} {g.gymnast_last_name}</div>
+                                  <div style={{fontSize:11,color:'#9ca3af'}}>{g.team_name}</div>
+                                </div>
+                                <div style={{textAlign:'right',fontSize:13,color:EVENT_COLORS.vault}}>{fmt(g.vault,g.vault_dnc)}</div>
+                                <div style={{textAlign:'right',fontSize:13,color:EVENT_COLORS.bars}}>{fmt(g.bars,g.bars_dnc)}</div>
+                                <div style={{textAlign:'right',fontSize:13,color:EVENT_COLORS.beam}}>{fmt(g.beam,g.beam_dnc)}</div>
+                                <div style={{textAlign:'right',fontSize:13,color:EVENT_COLORS.floor}}>{fmt(g.floor,g.floor_dnc)}</div>
+                                <div style={{textAlign:'right',fontSize:15,fontWeight:700,color:'#111827'}}>{fmt(g.all_around)}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
           ) : (
-            // ── EVENTS TAB — per event, ranked within each age group ───────
+            // ── EVENTS TAB: event pills → Division → Age Group → gymnasts ─
             <div>
-              {/* Event selector */}
               <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap'}}>
                 {EVENTS.map(ev => (
                   <button key={ev} onClick={()=>setActiveEvent(ev)}
-                    style={{padding:'7px 16px',borderRadius:99,border:`1.5px solid ${activeEvent===ev?EVENT_COLORS[ev]:'#e5e7eb'}`,
+                    style={{padding:'7px 16px',borderRadius:99,
+                      border:`1.5px solid ${activeEvent===ev?EVENT_COLORS[ev]:'#e5e7eb'}`,
                       background:activeEvent===ev?EVENT_COLORS[ev]:'#fff',
-                      fontSize:13,fontWeight:600,color:activeEvent===ev?'#fff':EVENT_COLORS[ev],cursor:'pointer'}}>
+                      fontSize:13,fontWeight:600,
+                      color:activeEvent===ev?'#fff':EVENT_COLORS[ev],cursor:'pointer'}}>
                     {EVENT_LABELS[ev]}
                   </button>
                 ))}
               </div>
 
-              {ageGroups.map(ag => {
-                const agGymnasts = gymnasts
-                  .filter(g => g.age_group === ag)
-                  .map(g => ({
-                    ...g,
-                    displayScore: getDncForEvent(g, activeEvent) ? null : (g[activeEvent] ?? null),
-                    displayDnc: getDncForEvent(g, activeEvent),
-                  }))
-                  .filter(g => g.displayScore !== null || g.displayDnc)
-
-                const rankedAg = ranked(agGymnasts.filter(g => !g.displayDnc), 'displayScore')
-                const dncGymnasts = agGymnasts.filter(g => g.displayDnc).map(g => ({...g, rank: 999}))
-                const all = [...rankedAg, ...dncGymnasts]
-
-                return (
-                  <AgeGroupBlock key={ag} label={ag} gymnasts={all} cols={[]} />
-                )
-              })}
-
-              {ageGroups.every(ag =>
-                gymnasts.filter(g => g.age_group === ag && (g[activeEvent] !== null || getDncForEvent(g, activeEvent))).length === 0
-              ) && (
-                <div style={s.emptyState}>
-                  <p style={{fontSize:14,color:'#9ca3af',margin:0}}>No {EVENT_LABELS[activeEvent]} scores entered yet.</p>
-                </div>
-              )}
+              <div style={{display:'flex',flexDirection:'column',gap:20}}>
+                {divisions.map(div => {
+                  const divGymnasts = gymnasts.filter(g => div === null ? !g.division_name : g.division_name === div)
+                  const divAgeGroups = AGE_GROUP_ORDER.filter(ag => divGymnasts.some(g => g.age_group === ag))
+                  if (divGymnasts.length === 0) return null
+                  return (
+                    <div key={div??'nodiv'}>
+                      {hasDivisions && div && <DivisionHeader name={div} />}
+                      <div style={{border:'1px solid #e5e7eb',borderTop: hasDivisions && div ? 'none' : '1px solid #e5e7eb',borderRadius: hasDivisions && div ? '0 0 10px 10px' : 10,overflow:'hidden'}}>
+                        {divAgeGroups.map((ag, agi) => {
+                          const evScore = (g: GymnastStanding) => getDncForEvent(g, activeEvent) ? null : g[activeEvent]
+                          const agAll = divGymnasts.filter(g => g.age_group === ag)
+                          const agScored = ranked(agAll.filter(g => evScore(g) !== null), 'all_around').map(g => ({
+                            ...g,
+                            _evScore: evScore(g),
+                            _rank: 0,
+                          }))
+                          // re-rank by event score
+                          const agRanked = ranked(agAll.filter(g => evScore(g) !== null).map(g => ({...g, _evScore: evScore(g)})), '_evScore')
+                          const agDnc = agAll.filter(g => getDncForEvent(g, activeEvent))
+                          if (agRanked.length === 0 && agDnc.length === 0) return null
+                          return (
+                            <div key={ag}>
+                              <AgeGroupHeader label={ag} />
+                              {agRanked.map((g, i) => (
+                                <div key={g.gymnast_id} style={{
+                                  display:'grid',gridTemplateColumns:'48px 2fr 100px',
+                                  gap:8,padding:'10px 12px',alignItems:'center',
+                                  borderBottom:'1px solid #f3f4f6',
+                                  backgroundColor:g.rank===1?'#fffbeb':g.rank===2?'#f8fafc':g.rank===3?'#fff7f0':'#fff',
+                                }}>
+                                  <div style={{display:'flex',alignItems:'center',justifyContent:'center'}}><Medal rank={g.rank}/></div>
+                                  <div>
+                                    <div style={{fontSize:14,fontWeight:500,color:'#111827'}}>{g.gymnast_first_name} {g.gymnast_last_name}</div>
+                                    <div style={{fontSize:11,color:'#9ca3af'}}>{g.team_name}</div>
+                                  </div>
+                                  <div style={{textAlign:'right',fontSize:16,fontWeight:700,color:EVENT_COLORS[activeEvent]}}>{fmt(g._evScore as number)}</div>
+                                </div>
+                              ))}
+                              {agDnc.map(g => (
+                                <div key={g.gymnast_id} style={{display:'grid',gridTemplateColumns:'48px 2fr 100px',gap:8,padding:'10px 12px',alignItems:'center',borderBottom:'1px solid #f3f4f6',backgroundColor:'#fafafa'}}>
+                                  <div style={{display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'#9ca3af'}}>—</div>
+                                  <div>
+                                    <div style={{fontSize:14,fontWeight:500,color:'#9ca3af'}}>{g.gymnast_first_name} {g.gymnast_last_name}</div>
+                                    <div style={{fontSize:11,color:'#9ca3af'}}>{g.team_name}</div>
+                                  </div>
+                                  <div style={{textAlign:'right',fontSize:13,fontWeight:600,color:'#dc2626'}}>DNC</div>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </main>
       </div>
     </div>
   )
-}
-
-function getDncForEvent(g: GymnastStanding, ev: Event): boolean {
-  return g[`${ev}_dnc` as keyof GymnastStanding] as boolean || false
 }
 
 const s: Record<string, React.CSSProperties> = {
@@ -383,7 +437,6 @@ const s: Record<string, React.CSSProperties> = {
   linkBtn:      {background:'none',border:'none',fontSize:13,color:'#2563eb',cursor:'pointer',padding:0,fontWeight:500},
   pageTitle:    {fontSize:22,fontWeight:700,color:'#111827',margin:'0 0 2px',letterSpacing:'-0.3px'},
   pageSub:      {fontSize:13,color:'#6b7280',margin:0},
-  card:         {backgroundColor:'#fff',border:'1px solid #e5e7eb',borderRadius:12,padding:20,overflowX:'auto'},
   emptyState:   {backgroundColor:'#fff',border:'1px dashed #e5e7eb',borderRadius:12,padding:'48px 24px',textAlign:'center'},
   goBtn:        {backgroundColor:'#111827',color:'#fff',border:'none',borderRadius:8,padding:'9px 18px',fontSize:13,fontWeight:500,cursor:'pointer'},
 }
