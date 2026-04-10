@@ -3,7 +3,7 @@
 
 export type MeetStatus = 'setup' | 'active' | 'finalized' | 'suspended'
 export type MeetTeamStatus = 'invited' | 'confirmed' | 'declined' | 'pending'
-export type ResultsVisibility = 'public' | 'private' | 'members_only'
+export type ResultsVisibility = 'live' | 'after_finalized'
 
 export interface Meet {
   id: string

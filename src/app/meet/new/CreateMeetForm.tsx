@@ -19,7 +19,7 @@ export default function CreateMeetForm() {
     lineup_due_date: '',
     num_judges: '',
     counts_for_state: false,
-    results_visibility: 'members_only',
+    results_visibility: 'after_finalized',
   })
 
   function handleField(key: string, value: string | boolean) {
@@ -118,9 +118,8 @@ export default function CreateMeetForm() {
               <div>
                 <label style={labelStyle}>Results Visibility</label>
                 <select value={form.results_visibility} onChange={(e) => handleField('results_visibility', e.target.value)} style={inputStyle}>
-                  <option value="members_only">Members Only</option>
-                  <option value="public">Public</option>
-                  <option value="private">Private</option>
+                  <option value="after_finalized">After Finalized</option>
+                  <option value="live">Live</option>
                 </select>
               </div>
             </div>

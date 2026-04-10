@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
       lineup_due_date: lineup_due_date || null,
       num_judges: num_judges || null,
       counts_for_state: counts_for_state ?? false,
-      results_visibility: results_visibility || 'members_only',
+      results_visibility: results_visibility || 'after_finalized',
       status: 'setup',
       host_club_id: profile.club_id,
       season_id: season.id,
