@@ -13,7 +13,6 @@ interface Meet {
   clubs: { name: string; city: string | null; state: string | null } | { name: string; city: string | null; state: string | null }[]
 }
 
-// #2 — flat shape: no nested arrays, team_name/club_name/division_name come directly from the RPC
 interface MeetTeam {
   id: string
   status: string
@@ -66,26 +65,24 @@ export default function MeetDetailPage() {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editForm, setEditForm] = useState({ name: '', meet_date: '', location: '', results_visibility: '' })
-
-  // #1 — logged-in user's club_id, looked up from public.users
   const [userClubId, setUserClubId] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
       setLoading(true)
 
-      // #1 — get auth user then fetch club_id from public.users
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
         const { data: userData } = await supabase
           .from('users')
-          .select('club_id')
+          .select('club_id, role')
           .eq('id', user.id)
           .single()
         setUserClubId(userData?.club_id ?? null)
+        setUserRole(userData?.role ?? null)
       }
 
-      // fetch meet with host club name
       const { data: meetData, error: meetError } = await supabase
         .from('meets')
         .select('*, clubs (name, city, state)')
@@ -101,8 +98,6 @@ export default function MeetDetailPage() {
         results_visibility: meetData.results_visibility,
       })
 
-      // #2 — use the RPC so team_name, club_name, division_name are flat fields
-      // — avoids Supabase implicit FK join ambiguity that was returning 'Team' fallback
       const { data: teamsData } = await supabase
         .rpc('get_meet_teams', { p_meet_id: meetId })
 
@@ -112,8 +107,8 @@ export default function MeetDetailPage() {
     if (meetId) load()
   }, [meetId])
 
-  // #1 — true only when the logged-in user belongs to the meet's host club
   const isHost = meet !== null && userClubId !== null && userClubId === meet.host_club_id
+  const dashboardPath = userRole === 'maga_admin' ? '/maga/dashboard' : '/club/dashboard'
 
   async function handleSaveEdit() {
     if (!meet) return
@@ -156,7 +151,7 @@ export default function MeetDetailPage() {
           <div style={s.logo}>G</div>
           <span style={s.logoText}>Gymnastats</span>
           <div style={{flex:1}}/>
-          <button onClick={()=>router.push('/club/dashboard')} style={s.backBtn}>← Dashboard</button>
+          <button onClick={()=>router.push(dashboardPath)} style={s.backBtn}>← Dashboard</button>
         </div>
       </div>
 
@@ -183,7 +178,6 @@ export default function MeetDetailPage() {
             })}
           </nav>
 
-          {/* #1 — host-only sidebar controls */}
           {isHost && (
             <div style={{marginTop:24,paddingTop:24,borderTop:'1px solid #e5e7eb',display:'flex',flexDirection:'column',gap:8}}>
               <button style={s.sidebarBtn} onClick={()=>setEditing(true)}>✏️ Edit meet details</button>
@@ -250,7 +244,6 @@ export default function MeetDetailPage() {
           <div style={s.card}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
               <h2 style={s.cardTitle}>Teams</h2>
-              {/* #1 — host-only */}
               {isHost && (
                 <button style={s.linkBtn} onClick={()=>router.push(`/meet/new?meetId=${meetId}`)}>+ Manage teams</button>
               )}
@@ -264,7 +257,6 @@ export default function MeetDetailPage() {
                   const ts = TEAM_STATUS_COLORS[mt.status] || TEAM_STATUS_COLORS.pending
                   return (
                     <div key={mt.id} style={s.tableRow}>
-                      {/* #2 — flat fields, never undefined */}
                       <span style={{fontSize:14,fontWeight:500,color:'#111827'}}>{mt.team_name || '—'}</span>
                       <span style={{fontSize:13,color:'#6b7280'}}>{mt.club_name || '—'}</span>
                       <span style={{fontSize:13,color:'#6b7280'}}>{mt.division_name || '—'}</span>
@@ -279,7 +271,6 @@ export default function MeetDetailPage() {
           <div style={s.card}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
               <h2 style={s.cardTitle}>Meet details</h2>
-              {/* #1 — host-only */}
               {isHost && (
                 <button style={s.linkBtn} onClick={()=>setEditing(true)}>Edit</button>
               )}
