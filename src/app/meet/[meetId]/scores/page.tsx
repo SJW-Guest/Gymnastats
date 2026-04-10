@@ -2,7 +2,7 @@
 
 // src/app/meet/[meetId]/scores/page.tsx
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter, usePathname } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 
@@ -46,11 +46,14 @@ const NAV_ITEMS = [
   { key: 'standings', label: 'Meet Standings', suffix: '/standings' },
 ]
 
-// ─── Judge mobile numpad ────────────────────────────────────────────────────
-function NumPad({ value, onChange, onConfirm, onDnc, isDnc, disabled }:
-  { value: string; onChange: (v: string) => void; onConfirm: () => void; onDnc: (v: boolean) => void; isDnc: boolean; disabled: boolean }) {
+// Team header colors for the roster panel
+const TEAM_COLORS = [
+  '#374151', '#1e40af', '#065f46', '#7c2d12', '#4c1d95', '#831843',
+]
+
+function NumPad({ value, onChange, onConfirm, onDnc, isDnc }:
+  { value: string; onChange: (v: string) => void; onConfirm: () => void; onDnc: (v: boolean) => void; isDnc: boolean }) {
   function tap(key: string) {
-    if (disabled) return
     if (key === 'DEL') { onChange(value.slice(0, -1)); return }
     if (key === '.') { if (value.includes('.')) return; onChange(value + '.'); return }
     const next = value + key
@@ -60,9 +63,8 @@ function NumPad({ value, onChange, onConfirm, onDnc, isDnc, disabled }:
   return (
     <div style={np.wrap}>
       <div style={np.display}>
-        {isDnc ? <span style={{color:'#dc2626',fontWeight:700}}>DNC</span> : (
-          <span style={{fontSize:36,fontWeight:700,color:'#111827'}}>{value || '—'}</span>
-        )}
+        {isDnc ? <span style={{color:'#dc2626',fontWeight:700,fontSize:24}}>DNC</span> :
+          <span style={{fontSize:36,fontWeight:700,color:'#111827'}}>{value || '—'}</span>}
       </div>
       <div style={np.grid}>
         {['7','8','9','4','5','6','1','2','3','.','0','DEL'].map(k => (
@@ -73,7 +75,7 @@ function NumPad({ value, onChange, onConfirm, onDnc, isDnc, disabled }:
         ))}
       </div>
       <div style={{display:'flex',gap:8,marginTop:8}}>
-        <button onClick={() => onDnc(!isDnc)} style={{...np.dncBtn, ...(isDnc?np.dncActive:{})}}>DNC</button>
+        <button onClick={() => onDnc(!isDnc)} style={{...np.dncBtn,...(isDnc?np.dncActive:{})}}>DNC</button>
         <button onClick={onConfirm} disabled={!value && !isDnc} style={np.confirmBtn}>Confirm ✓</button>
       </div>
     </div>
@@ -81,18 +83,17 @@ function NumPad({ value, onChange, onConfirm, onDnc, isDnc, disabled }:
 }
 
 const np: Record<string, React.CSSProperties> = {
-  wrap:       {display:'flex',flexDirection:'column',alignItems:'center',gap:8,padding:'16px'},
-  display:    {height:64,display:'flex',alignItems:'center',justifyContent:'center',width:'100%',background:'#f8f9fa',borderRadius:12,border:'1px solid #e5e7eb',marginBottom:8},
-  grid:       {display:'grid',gridTemplateColumns:'repeat(3, 1fr)',gap:8,width:'100%',maxWidth:280},
-  key:        {height:56,borderRadius:10,border:'1px solid #e5e7eb',background:'#fff',fontSize:20,fontWeight:500,color:'#111827',cursor:'pointer'},
+  wrap:       {display:'flex',flexDirection:'column',alignItems:'center',gap:8,padding:'12px 16px'},
+  display:    {height:60,display:'flex',alignItems:'center',justifyContent:'center',width:'100%',background:'#f8f9fa',borderRadius:12,border:'1px solid #e5e7eb',marginBottom:4},
+  grid:       {display:'grid',gridTemplateColumns:'repeat(3, 1fr)',gap:6,width:'100%',maxWidth:280},
+  key:        {height:52,borderRadius:10,border:'1px solid #e5e7eb',background:'#fff',fontSize:20,fontWeight:500,color:'#111827',cursor:'pointer'},
   delKey:     {background:'#f3f4f6',color:'#374151'},
   disKey:     {opacity:0.3,cursor:'default'},
-  dncBtn:     {flex:1,height:48,borderRadius:10,border:'1px solid #e5e7eb',background:'#fff',fontSize:14,fontWeight:600,color:'#dc2626',cursor:'pointer'},
+  dncBtn:     {flex:1,height:44,borderRadius:10,border:'1px solid #e5e7eb',background:'#fff',fontSize:14,fontWeight:600,color:'#dc2626',cursor:'pointer'},
   dncActive:  {background:'#fee2e2',borderColor:'#fca5a5'},
-  confirmBtn: {flex:2,height:48,borderRadius:10,border:'none',background:'#111827',color:'#fff',fontSize:15,fontWeight:600,cursor:'pointer'},
+  confirmBtn: {flex:2,height:44,borderRadius:10,border:'none',background:'#111827',color:'#fff',fontSize:15,fontWeight:600,cursor:'pointer'},
 }
 
-// ─── Main page ──────────────────────────────────────────────────────────────
 export default function ScoreEntryPage() {
   const { meetId } = useParams<{ meetId: string }>()
   const router = useRouter()
@@ -109,6 +110,7 @@ export default function ScoreEntryPage() {
   const [userClubId, setUserClubId] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
 
+  // Score table state
   const [activeEvent, setActiveEvent] = useState<Event>('vault')
   const [filterTeamId, setFilterTeamId] = useState<string>('all')
   const [edits, setEdits] = useState<Record<string, string>>({})
@@ -116,12 +118,14 @@ export default function ScoreEntryPage() {
   const [saving, setSaving] = useState<Set<string>>(new Set())
   const [saved, setSaved] = useState<Set<string>>(new Set())
 
+  // Judge mode state
   const [judgeMode, setJudgeMode] = useState(false)
   const [judgeEvent, setJudgeEvent] = useState<Event>('vault')
-  const [judgeTeamId, setJudgeTeamId] = useState<string>('all')
   const [judgeIndex, setJudgeIndex] = useState(0)
   const [judgeVal, setJudgeVal] = useState('')
   const [judgeDnc, setJudgeDnc] = useState(false)
+
+  const activeRowRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -145,28 +149,67 @@ export default function ScoreEntryPage() {
     if (meetId) load()
   }, [meetId])
 
+  // scroll active roster row into view
+  useEffect(() => {
+    if (judgeMode && activeRowRef.current) {
+      activeRowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [judgeIndex, judgeMode])
+
   const isHost = meet !== null && userClubId !== null && userClubId === meet.host_club_id
   const dashboardPath = userRole === 'maga_admin' ? '/maga/dashboard' : '/club/dashboard'
   const activeRows = rows.filter(r => r.lineup_status !== 'scratched')
-  const teams = Array.from(new Map(activeRows.map(r => [r.team_id, r.team_name])).entries())
-    .map(([id, name]) => ({ id, name }))
 
-  function getDisplayVal(row: ScoreRow, event: Event): string {
-    if (row.gymnast_id in edits && activeEvent === event) return edits[row.gymnast_id]
-    const v = row[event] as number | null
-    return v !== null ? String(v) : ''
+  // all teams in order they appear in the lineup
+  const teams = Array.from(new Map(
+    activeRows.map(r => [r.team_id, { id: r.team_id, name: r.team_name, division: r.division_name }])
+  ).values())
+
+  // judge view uses all active rows sorted by team order then running order
+  const judgeRows = activeRows.slice().sort((a, b) => {
+    const ai = teams.findIndex(t => t.id === a.team_id)
+    const bi = teams.findIndex(t => t.id === b.team_id)
+    if (ai !== bi) return ai - bi
+    return a.running_order - b.running_order
+  })
+
+  const currentRow = judgeRows[judgeIndex] ?? null
+
+  function getScore(row: ScoreRow, event: Event): number | null {
+    return row[event as keyof ScoreRow] as number | null
+  }
+  function getDnc(row: ScoreRow, event: Event): boolean {
+    return row[`${event}_dnc` as keyof ScoreRow] as boolean || false
+  }
+  function countEntered(event: Event) {
+    return activeRows.filter(r => getScore(r, event) !== null || getDnc(r, event)).length
+  }
+  function getTeamColor(teamId: string): string {
+    const idx = teams.findIndex(t => t.id === teamId)
+    return TEAM_COLORS[idx % TEAM_COLORS.length]
+  }
+  function getRotationLeft(row: ScoreRow): number {
+    const teamRows = judgeRows.filter(r => r.team_id === row.team_id)
+    const idx = teamRows.findIndex(r => r.gymnast_id === row.gymnast_id)
+    return Math.max(0, teamRows.length - idx - 1)
   }
 
-  function isDnc(row: ScoreRow, event: Event): boolean {
+  // score table helpers
+  function getDisplayVal(row: ScoreRow, event: Event): string {
+    if (row.gymnast_id in edits && activeEvent === event) return edits[row.gymnast_id]
+    const v = getScore(row, event)
+    return v !== null ? String(v) : ''
+  }
+  function isDncEdit(row: ScoreRow, event: Event): boolean {
     if (row.gymnast_id in dncEdits && activeEvent === event) return dncEdits[row.gymnast_id]
-    return row[`${event}_dnc` as keyof ScoreRow] as boolean || false
+    return getDnc(row, event)
   }
 
   async function saveScore(row: ScoreRow, event: Event) {
     const gid = row.gymnast_id
     const rawVal = edits[gid]
-    const dnc = dncEdits[gid] ?? (row[`${event}_dnc` as keyof ScoreRow] as boolean || false)
-    const numVal = rawVal !== undefined ? (rawVal === '' ? null : parseFloat(rawVal)) : row[event as keyof ScoreRow] as number | null
+    const dnc = dncEdits[gid] ?? getDnc(row, event)
+    const numVal = rawVal !== undefined ? (rawVal === '' ? null : parseFloat(rawVal)) : getScore(row, event)
     setSaving(prev => new Set(prev).add(gid))
     const payload = { meet_id: meetId, gymnast_id: gid, team_id: row.team_id, age_group: row.age_group, [event]: numVal, [`${event}_dnc`]: dnc }
     if (row.score_id) {
@@ -188,49 +231,23 @@ export default function ScoreEntryPage() {
     setTimeout(() => setSaved(prev => { const n = new Set(prev); n.delete(gid); return n }), 1500)
   }
 
-  function countEntered(event: Event) {
-    return activeRows.filter(r => r[event as keyof ScoreRow] !== null || (r[`${event}_dnc` as keyof ScoreRow] as boolean)).length
-  }
-
-  // ── Judge mode ──────────────────────────────────────────────────────────
-  const judgeRows = activeRows.filter(r => judgeTeamId === 'all' || r.team_id === judgeTeamId)
-  const currentJudgeRow = judgeRows[judgeIndex] ?? null
-
-  // ── Team rotation info for judge view ──
-  // For the current gymnast's team, how many are left after this gymnast (in running order)
-  function getTeamRotationInfo(row: ScoreRow): { scored: number; total: number; remaining: number } {
-    const teamRows = judgeRows.filter(r => r.team_id === row.team_id)
-      .sort((a, b) => a.running_order - b.running_order)
-    const currentIdx = teamRows.findIndex(r => r.gymnast_id === row.gymnast_id)
-    const scored = teamRows.filter(r => {
-      const score = r[judgeEvent as keyof ScoreRow] as number | null
-      const dnc = r[`${judgeEvent}_dnc` as keyof ScoreRow] as boolean
-      return score !== null || dnc
-    }).length
-    const remaining = teamRows.length - currentIdx - 1
-    return { scored, total: teamRows.length, remaining: Math.max(0, remaining) }
-  }
-
-  function judgeNext() { setJudgeVal(''); setJudgeDnc(false); setJudgeIndex(i => Math.min(i + 1, judgeRows.length - 1)) }
-  function judgePrev() { setJudgeVal(''); setJudgeDnc(false); setJudgeIndex(i => Math.max(i - 1, 0)) }
-
   async function judgeConfirm() {
-    if (!currentJudgeRow) return
+    if (!currentRow) return
     const numVal = judgeVal === '' ? null : parseFloat(judgeVal)
-    const gid = currentJudgeRow.gymnast_id
+    const gid = currentRow.gymnast_id
     const payload = {
-      meet_id: meetId, gymnast_id: gid, team_id: currentJudgeRow.team_id,
-      age_group: currentJudgeRow.age_group,
+      meet_id: meetId, gymnast_id: gid, team_id: currentRow.team_id,
+      age_group: currentRow.age_group,
       [judgeEvent]: judgeDnc ? null : numVal,
       [`${judgeEvent}_dnc`]: judgeDnc,
     }
     setSaving(prev => new Set(prev).add(gid))
-    if (currentJudgeRow.score_id) {
-      await supabase.from('scores').update(payload).eq('id', currentJudgeRow.score_id)
+    if (currentRow.score_id) {
+      await supabase.from('scores').update(payload).eq('id', currentRow.score_id)
     } else {
       const { data: ins } = await supabase.from('scores').insert({
-        meet_id: meetId, gymnast_id: gid, team_id: currentJudgeRow.team_id,
-        age_group: currentJudgeRow.age_group,
+        meet_id: meetId, gymnast_id: gid, team_id: currentRow.team_id,
+        age_group: currentRow.age_group,
         vault: null, bars: null, beam: null, floor: null,
         vault_dnc: false, bars_dnc: false, beam_dnc: false, floor_dnc: false,
         [judgeEvent]: judgeDnc ? null : numVal, [`${judgeEvent}_dnc`]: judgeDnc,
@@ -241,9 +258,8 @@ export default function ScoreEntryPage() {
       ? { ...r, [judgeEvent]: judgeDnc ? null : numVal, [`${judgeEvent}_dnc`]: judgeDnc }
       : r))
     setSaving(prev => { const n = new Set(prev); n.delete(gid); return n })
-    setSaved(prev => new Set(prev).add(gid))
-    setTimeout(() => setSaved(prev => { const n = new Set(prev); n.delete(gid); return n }), 1000)
-    judgeNext()
+    setJudgeVal(''); setJudgeDnc(false)
+    setJudgeIndex(i => Math.min(i + 1, judgeRows.length - 1))
   }
 
   if (loading) return <div style={s.page}><div style={s.center}><div style={s.spinner}/></div></div>
@@ -259,24 +275,35 @@ export default function ScoreEntryPage() {
 
   // ── JUDGE MODE ────────────────────────────────────────────────────────────
   if (judgeMode) {
-    const row = currentJudgeRow
+    const row = currentRow
     const progress = judgeRows.length > 0 ? (judgeIndex / judgeRows.length) * 100 : 0
-    const existingScore = row ? (row[judgeEvent as keyof ScoreRow] as number | null) : null
-    const existingDnc = row ? (row[`${judgeEvent}_dnc` as keyof ScoreRow] as boolean) : false
-    const rotInfo = row ? getTeamRotationInfo(row) : null
+    const existingScore = row ? getScore(row, judgeEvent) : null
+    const existingDnc = row ? getDnc(row, judgeEvent) : false
+    const rotLeft = row ? getRotationLeft(row) : 0
+    const teamColor = row ? getTeamColor(row.team_id) : '#374151'
+
+    // build roster: group by team preserving order
+    const rosterGroups = teams.map((team, ti) => ({
+      ...team,
+      color: TEAM_COLORS[ti % TEAM_COLORS.length],
+      gymnasts: judgeRows.filter(r => r.team_id === team.id),
+    }))
 
     return (
       <div style={jm.page}>
+        {/* Top bar */}
         <div style={jm.topBar}>
           <button onClick={()=>setJudgeMode(false)} style={jm.backBtn}>← Score table</button>
           <span style={jm.title}>{meet.name}</span>
           <span style={{fontSize:13,color:'#9ca3af'}}>{judgeIndex + 1} / {judgeRows.length}</span>
         </div>
 
+        {/* Progress bar */}
         <div style={{height:3,background:'#e5e7eb'}}>
           <div style={{height:3,background:'#111827',width:`${progress}%`,transition:'width 0.3s'}}/>
         </div>
 
+        {/* Event tabs */}
         <div style={jm.eventRow}>
           {EVENTS.map(ev => (
             <button key={ev}
@@ -288,65 +315,92 @@ export default function ScoreEntryPage() {
           ))}
         </div>
 
-        {teams.length > 1 && (
-          <div style={{padding:'0 16px 8px',overflowX:'auto',display:'flex',gap:8}}>
-            <button onClick={()=>{setJudgeTeamId('all');setJudgeIndex(0)}}
-              style={{...jm.teamChip,...(judgeTeamId==='all'?jm.teamChipActive:{})}}>All</button>
-            {teams.map(t => (
-              <button key={t.id} onClick={()=>{setJudgeTeamId(t.id);setJudgeIndex(0)}}
-                style={{...jm.teamChip,...(judgeTeamId===t.id?jm.teamChipActive:{}),whiteSpace:'nowrap'}}>
-                {t.name}
-              </button>
+        {/* Body: roster panel + main */}
+        <div style={jm.body}>
+
+          {/* Roster panel */}
+          <div style={jm.roster}>
+            {rosterGroups.map(group => (
+              <div key={group.id}>
+                {/* Sticky team header */}
+                <div style={{...jm.teamHeader, backgroundColor: group.color}}>
+                  <span style={jm.teamHeaderName}>{group.name}</span>
+                  {group.division && <span style={jm.teamHeaderDiv}>{group.division}</span>}
+                </div>
+                {/* Gymnasts */}
+                {group.gymnasts.map((r, gi) => {
+                  const globalIdx = judgeRows.findIndex(jr => jr.gymnast_id === r.gymnast_id)
+                  const isActive = globalIdx === judgeIndex
+                  const score = getScore(r, judgeEvent)
+                  const dnc = getDnc(r, judgeEvent)
+                  const hasScore = score !== null || dnc
+                  return (
+                    <div
+                      key={r.gymnast_id}
+                      ref={isActive ? activeRowRef : null}
+                      onClick={() => { setJudgeIndex(globalIdx); setJudgeVal(''); setJudgeDnc(false) }}
+                      style={{...jm.rosterRow, ...(isActive ? jm.rosterRowActive : {})}}
+                    >
+                      <span style={jm.rNum}>{r.running_order}</span>
+                      <div style={jm.rInfo}>
+                        <div style={{...jm.rName,...(isActive?{color:'#111827',fontWeight:600}:{})}}>{r.gymnast_last_name}, {r.gymnast_first_name.charAt(0)}.</div>
+                        <div style={jm.rSub}>{r.age_group}</div>
+                        {hasScore
+                          ? <div style={jm.rScore}>{dnc ? 'DNC' : score?.toFixed(3)} ✓</div>
+                          : <div style={jm.rNone}>—</div>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             ))}
           </div>
-        )}
 
-        {row ? (
-          <div style={jm.card}>
-            {/* ── Team indicator bar ── */}
-            <div style={jm.teamBar}>
-              <div style={jm.teamBarLeft}>
-                <span style={jm.teamBarName}>{row.team_name}</span>
-                {row.division_name && (
-                  <span style={jm.teamBarDivision}>{row.division_name}</span>
-                )}
-              </div>
-              <div style={jm.teamBarRight}>
-                {rotInfo && (
-                  <>
-                    <span style={jm.rotationNum}>{rotInfo.remaining}</span>
-                    <span style={jm.rotationLabel}>left in rotation</span>
-                  </>
-                )}
-              </div>
-            </div>
+          {/* Main entry area */}
+          <div style={jm.main}>
+            {row ? (
+              <>
+                {/* Team indicator bar */}
+                <div style={{...jm.teamBar, borderLeft:`4px solid ${teamColor}`}}>
+                  <div>
+                    <div style={jm.teamBarName}>{row.team_name}</div>
+                    {row.division_name && <div style={jm.teamBarDiv}>{row.division_name}</div>}
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    <div style={jm.rotNum}>{rotLeft}</div>
+                    <div style={jm.rotLabel}>left in rotation</div>
+                  </div>
+                </div>
 
-            <div style={jm.order}>#{row.running_order}</div>
-            <div style={jm.name}>{row.gymnast_first_name} {row.gymnast_last_name}</div>
-            <div style={jm.sub}>{row.age_group}</div>
+                <div style={{padding:'8px 14px 0'}}>
+                  <div style={jm.order}>#{row.running_order}</div>
+                  <div style={jm.name}>{row.gymnast_first_name} {row.gymnast_last_name}</div>
+                  <div style={jm.sub}>{row.age_group}</div>
+                  {(existingScore !== null || existingDnc) && (
+                    <div style={jm.existing}>Current: <strong>{existingDnc ? 'DNC' : existingScore?.toFixed(3)}</strong></div>
+                  )}
+                </div>
 
-            {(existingScore !== null || existingDnc) && (
-              <div style={jm.existing}>
-                Current: <strong>{existingDnc ? 'DNC' : existingScore}</strong>
-              </div>
+                <NumPad
+                  value={judgeVal}
+                  onChange={setJudgeVal}
+                  onConfirm={judgeConfirm}
+                  onDnc={setJudgeDnc}
+                  isDnc={judgeDnc}
+                />
+              </>
+            ) : (
+              <div style={{padding:32,textAlign:'center',color:'#9ca3af'}}>No gymnasts available.</div>
             )}
-            <NumPad
-              value={judgeVal}
-              onChange={setJudgeVal}
-              onConfirm={judgeConfirm}
-              onDnc={setJudgeDnc}
-              isDnc={judgeDnc}
-              disabled={false}
-            />
-          </div>
-        ) : (
-          <div style={{padding:32,textAlign:'center',color:'#9ca3af'}}>No gymnasts in this selection.</div>
-        )}
 
-        <div style={jm.navRow}>
-          <button onClick={judgePrev} disabled={judgeIndex === 0} style={jm.navBtn}>← Prev</button>
-          <span style={{fontSize:13,color:'#9ca3af'}}>{row?.gymnast_first_name} {row?.gymnast_last_name}</span>
-          <button onClick={judgeNext} disabled={judgeIndex >= judgeRows.length - 1} style={jm.navBtn}>Next →</button>
+            <div style={jm.navRow}>
+              <button onClick={() => { setJudgeVal(''); setJudgeDnc(false); setJudgeIndex(i => Math.max(i-1,0)) }}
+                disabled={judgeIndex === 0} style={jm.navBtn}>← Prev</button>
+              <span style={{fontSize:12,color:'#9ca3af'}}>{row?.gymnast_first_name} {row?.gymnast_last_name}</span>
+              <button onClick={() => { setJudgeVal(''); setJudgeDnc(false); setJudgeIndex(i => Math.min(i+1,judgeRows.length-1)) }}
+                disabled={judgeIndex >= judgeRows.length-1} style={jm.navBtn}>Next →</button>
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -400,9 +454,7 @@ export default function ScoreEntryPage() {
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12}}>
             <div>
               <h1 style={s.pageTitle}>Score Entry</h1>
-              <p style={s.pageSub}>
-                {EVENTS.map(ev => `${EVENT_LABELS[ev]}: ${countEntered(ev)}/${activeRows.length}`).join(' · ')}
-              </p>
+              <p style={s.pageSub}>{EVENTS.map(ev => `${EVENT_LABELS[ev]}: ${countEntered(ev)}/${activeRows.length}`).join(' · ')}</p>
             </div>
             <button onClick={()=>setJudgeMode(true)} style={s.judgeBtn}>📱 Judge view</button>
           </div>
@@ -421,11 +473,9 @@ export default function ScoreEntryPage() {
 
           {teams.length > 1 && (
             <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-              <button onClick={()=>setFilterTeamId('all')}
-                style={{...s.teamPill,...(filterTeamId==='all'?s.teamPillActive:{})}}>All teams</button>
+              <button onClick={()=>setFilterTeamId('all')} style={{...s.teamPill,...(filterTeamId==='all'?s.teamPillActive:{})}}>All teams</button>
               {teams.map(t => (
-                <button key={t.id} onClick={()=>setFilterTeamId(t.id)}
-                  style={{...s.teamPill,...(filterTeamId===t.id?s.teamPillActive:{})}}>
+                <button key={t.id} onClick={()=>setFilterTeamId(t.id)} style={{...s.teamPill,...(filterTeamId===t.id?s.teamPillActive:{})}}>
                   {t.name}
                 </button>
               ))}
@@ -438,71 +488,65 @@ export default function ScoreEntryPage() {
               <p style={{fontSize:13,color:'#9ca3af',margin:'0 0 16px'}}>Scores can be entered once teams have submitted their lineups.</p>
               <button style={s.goBtn} onClick={()=>router.push(`/meet/${meetId}/lineup`)}>Go to Lineup Manager →</button>
             </div>
-          ) : (
-            teamGroups.map(group => (
-              <div key={group.id} style={s.card}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-                  <h2 style={s.cardTitle}>{group.name}</h2>
-                  <span style={s.countBadge}>
-                    {group.entries.filter(r => {
-                      const score = r[activeEvent as keyof ScoreRow]
-                      const dnc = r[`${activeEvent}_dnc` as keyof ScoreRow] as boolean
-                      return score !== null || dnc
-                    }).length} / {group.entries.length} entered
-                  </span>
-                </div>
-
-                <div style={st.header}>
-                  <span>#</span><span>Gymnast</span><span>Age group</span>
-                  <span style={{textAlign:'center'}}>{EVENT_LABELS[activeEvent]}</span>
-                  <span style={{textAlign:'center'}}>DNC</span>
-                  <span></span>
-                </div>
-
-                {group.entries.map(row => {
-                  const gid = row.gymnast_id
-                  const isSaving = saving.has(gid)
-                  const isSaved = saved.has(gid)
-                  const hasEdit = gid in edits || gid in dncEdits
-                  const dnc = isDnc(row, activeEvent)
-                  const displayVal = getDisplayVal(row, activeEvent)
-                  const existingScore = row[activeEvent as keyof ScoreRow] as number | null
-                  const alreadyEntered = existingScore !== null || (row[`${activeEvent}_dnc` as keyof ScoreRow] as boolean)
-
-                  return (
-                    <div key={gid} style={{...st.row,...(alreadyEntered?st.enteredRow:{})}}>
-                      <span style={{fontSize:13,color:'#9ca3af',fontWeight:500}}>{row.running_order}</span>
-                      <span style={{fontSize:14,fontWeight:500,color:'#111827'}}>{row.gymnast_first_name} {row.gymnast_last_name}</span>
-                      <span style={{fontSize:13,color:'#6b7280'}}>{row.age_group}</span>
-                      <div style={{display:'flex',justifyContent:'center'}}>
-                        <input type="number" step="0.025" min="0" max="20"
-                          disabled={dnc || !isHost}
-                          value={dnc ? '' : displayVal}
-                          placeholder={dnc ? 'DNC' : (existingScore !== null ? String(existingScore) : '—')}
-                          onChange={e => setEdits(prev => ({...prev, [gid]: e.target.value}))}
-                          onKeyDown={e => { if (e.key === 'Enter') saveScore(row, activeEvent) }}
-                          style={{...st.input,...(dnc?st.dncInput:{}),...(alreadyEntered&&!hasEdit?st.enteredInput:{})}}
-                        />
-                      </div>
-                      <div style={{display:'flex',justifyContent:'center'}}>
-                        <input type="checkbox" checked={dnc} disabled={!isHost}
-                          onChange={e => setDncEdits(prev => ({...prev, [gid]: e.target.checked}))}
-                          style={{width:16,height:16,cursor:'pointer'}}
-                        />
-                      </div>
-                      {isHost && (
-                        <button onClick={() => saveScore(row, activeEvent)}
-                          disabled={isSaving || !hasEdit}
-                          style={{...st.saveBtn,...(isSaved?st.savedBtn:{}),...(!hasEdit&&!isSaved?st.idleBtn:{})}}>
-                          {isSaving ? '…' : isSaved ? '✓' : alreadyEntered ? 'Update' : 'Save'}
-                        </button>
-                      )}
-                    </div>
-                  )
-                })}
+          ) : teamGroups.map(group => (
+            <div key={group.id} style={s.card}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                <h2 style={s.cardTitle}>{group.name}</h2>
+                <span style={s.countBadge}>
+                  {group.entries.filter(r => {
+                    const score = getScore(r, activeEvent); const dnc = getDnc(r, activeEvent)
+                    return score !== null || dnc
+                  }).length} / {group.entries.length} entered
+                </span>
               </div>
-            ))
-          )}
+              <div style={st.header}>
+                <span>#</span><span>Gymnast</span><span>Age group</span>
+                <span style={{textAlign:'center'}}>{EVENT_LABELS[activeEvent]}</span>
+                <span style={{textAlign:'center'}}>DNC</span>
+                <span></span>
+              </div>
+              {group.entries.map(row => {
+                const gid = row.gymnast_id
+                const isSaving = saving.has(gid)
+                const isSaved = saved.has(gid)
+                const hasEdit = gid in edits || gid in dncEdits
+                const dnc = isDncEdit(row, activeEvent)
+                const displayVal = getDisplayVal(row, activeEvent)
+                const existingScore = getScore(row, activeEvent)
+                const alreadyEntered = existingScore !== null || getDnc(row, activeEvent)
+                return (
+                  <div key={gid} style={{...st.row,...(alreadyEntered?st.enteredRow:{})}}>
+                    <span style={{fontSize:13,color:'#9ca3af',fontWeight:500}}>{row.running_order}</span>
+                    <span style={{fontSize:14,fontWeight:500,color:'#111827'}}>{row.gymnast_first_name} {row.gymnast_last_name}</span>
+                    <span style={{fontSize:13,color:'#6b7280'}}>{row.age_group}</span>
+                    <div style={{display:'flex',justifyContent:'center'}}>
+                      <input type="number" step="0.025" min="0" max="20"
+                        disabled={dnc || !isHost}
+                        value={dnc ? '' : displayVal}
+                        placeholder={dnc ? 'DNC' : (existingScore !== null ? String(existingScore) : '—')}
+                        onChange={e => setEdits(prev => ({...prev, [gid]: e.target.value}))}
+                        onKeyDown={e => { if (e.key === 'Enter') saveScore(row, activeEvent) }}
+                        style={{...st.input,...(dnc?st.dncInput:{}),...(alreadyEntered&&!hasEdit?st.enteredInput:{})}}
+                      />
+                    </div>
+                    <div style={{display:'flex',justifyContent:'center'}}>
+                      <input type="checkbox" checked={dnc} disabled={!isHost}
+                        onChange={e => setDncEdits(prev => ({...prev, [gid]: e.target.checked}))}
+                        style={{width:16,height:16,cursor:'pointer'}}
+                      />
+                    </div>
+                    {isHost && (
+                      <button onClick={() => saveScore(row, activeEvent)}
+                        disabled={isSaving || !hasEdit}
+                        style={{...st.saveBtn,...(isSaved?st.savedBtn:{}),...(!hasEdit&&!isSaved?st.idleBtn:{})}}>
+                        {isSaving ? '…' : isSaved ? '✓' : alreadyEntered ? 'Update' : 'Save'}
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ))}
         </main>
       </div>
     </div>
@@ -522,31 +566,41 @@ const st: Record<string, React.CSSProperties> = {
 }
 
 const jm: Record<string, React.CSSProperties> = {
-  page:            {minHeight:'100vh',backgroundColor:'#f8f9fa',fontFamily:"'DM Sans', sans-serif",maxWidth:480,margin:'0 auto'},
-  topBar:          {backgroundColor:'#111827',padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'},
-  backBtn:         {background:'none',border:'1px solid #374151',borderRadius:6,color:'#9ca3af',padding:'5px 10px',fontSize:13,cursor:'pointer'},
-  title:           {color:'#fff',fontWeight:600,fontSize:14,flex:1,textAlign:'center',margin:'0 8px'},
-  eventRow:        {display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:0,borderBottom:'1px solid #e5e7eb',backgroundColor:'#fff'},
-  eventBtn:        {padding:'12px 4px',border:'none',background:'none',fontSize:13,fontWeight:500,color:'#6b7280',cursor:'pointer',borderBottom:'3px solid transparent',position:'relative' as const},
-  eventActive:     {color:'#111827',borderBottomColor:'#111827'},
-  eventDone:       {position:'absolute' as const,top:6,right:6,fontSize:9,color:'#16a34a',fontWeight:700},
-  teamChip:        {padding:'6px 12px',borderRadius:99,border:'1px solid #e5e7eb',background:'#fff',fontSize:12,color:'#6b7280',cursor:'pointer',whiteSpace:'nowrap' as const},
-  teamChipActive:  {backgroundColor:'#111827',color:'#fff',borderColor:'#111827'},
-  card:            {margin:'12px 16px',backgroundColor:'#fff',borderRadius:16,border:'1px solid #e5e7eb',overflow:'hidden'},
-  // ── team indicator bar ──
-  teamBar:         {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 16px',backgroundColor:'#f8f9fa',borderBottom:'1px solid #e5e7eb'},
-  teamBarLeft:     {display:'flex',flexDirection:'column' as const,gap:2},
-  teamBarName:     {fontSize:13,fontWeight:600,color:'#111827'},
-  teamBarDivision: {fontSize:11,color:'#6b7280'},
-  teamBarRight:    {display:'flex',flexDirection:'column' as const,alignItems:'flex-end',gap:1},
-  rotationNum:     {fontSize:20,fontWeight:700,color:'#111827',lineHeight:1},
-  rotationLabel:   {fontSize:10,color:'#9ca3af'},
-  order:           {textAlign:'center' as const,fontSize:13,color:'#9ca3af',paddingTop:16},
-  name:            {textAlign:'center' as const,fontSize:22,fontWeight:700,color:'#111827',padding:'4px 16px 0'},
-  sub:             {textAlign:'center' as const,fontSize:13,color:'#6b7280',paddingBottom:8},
-  existing:        {textAlign:'center' as const,fontSize:13,color:'#374151',padding:'4px 16px',background:'#f8f9fa',margin:'0 16px',borderRadius:8},
-  navRow:          {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px'},
-  navBtn:          {background:'none',border:'1px solid #e5e7eb',borderRadius:8,padding:'8px 16px',fontSize:14,color:'#374151',cursor:'pointer'},
+  page:          {minHeight:'100vh',backgroundColor:'#f8f9fa',fontFamily:"'DM Sans', sans-serif"},
+  topBar:        {backgroundColor:'#111827',padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'},
+  backBtn:       {background:'none',border:'1px solid #374151',borderRadius:6,color:'#9ca3af',padding:'5px 10px',fontSize:13,cursor:'pointer'},
+  title:         {color:'#fff',fontWeight:600,fontSize:14,flex:1,textAlign:'center',margin:'0 8px'},
+  eventRow:      {display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:0,borderBottom:'1px solid #e5e7eb',backgroundColor:'#fff'},
+  eventBtn:      {padding:'12px 4px',border:'none',background:'none',fontSize:13,fontWeight:500,color:'#6b7280',cursor:'pointer',borderBottom:'3px solid transparent',position:'relative' as const,textAlign:'center' as const},
+  eventActive:   {color:'#111827',borderBottomColor:'#111827'},
+  eventDone:     {position:'absolute' as const,top:6,right:6,fontSize:9,color:'#16a34a',fontWeight:700},
+  body:          {display:'flex',height:'calc(100vh - 115px)'},
+  // roster panel
+  roster:        {width:160,flexShrink:0,backgroundColor:'#fff',borderRight:'1px solid #e5e7eb',overflowY:'auto' as const},
+  teamHeader:    {padding:'6px 10px',display:'flex',justifyContent:'space-between',alignItems:'center',position:'sticky' as const,top:0,zIndex:1},
+  teamHeaderName:{fontSize:10,fontWeight:600,color:'#fff',textTransform:'uppercase' as const,letterSpacing:'0.05em'},
+  teamHeaderDiv: {fontSize:9,color:'rgba(255,255,255,0.65)'},
+  rosterRow:     {display:'flex',alignItems:'center',gap:6,padding:'7px 10px',borderBottom:'1px solid #f3f4f6',cursor:'pointer'},
+  rosterRowActive:{backgroundColor:'#f0f9ff',borderLeft:'3px solid #111827'},
+  rNum:          {fontSize:11,color:'#9ca3af',fontWeight:500,width:14,flexShrink:0},
+  rInfo:         {flex:1,minWidth:0},
+  rName:         {fontSize:12,fontWeight:500,color:'#374151',whiteSpace:'nowrap' as const,overflow:'hidden',textOverflow:'ellipsis'},
+  rSub:          {fontSize:10,color:'#6b7280'},
+  rScore:        {fontSize:10,color:'#16a34a',fontWeight:600},
+  rNone:         {fontSize:10,color:'#d1d5db'},
+  // main panel
+  main:          {flex:1,overflowY:'auto' as const,display:'flex',flexDirection:'column' as const},
+  teamBar:       {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',backgroundColor:'#f8f9fa',borderBottom:'1px solid #e5e7eb'},
+  teamBarName:   {fontSize:13,fontWeight:600,color:'#111827'},
+  teamBarDiv:    {fontSize:11,color:'#6b7280'},
+  rotNum:        {fontSize:20,fontWeight:700,color:'#111827',lineHeight:'1'},
+  rotLabel:      {fontSize:10,color:'#9ca3af'},
+  order:         {textAlign:'center' as const,fontSize:12,color:'#9ca3af',marginBottom:2},
+  name:          {textAlign:'center' as const,fontSize:20,fontWeight:700,color:'#111827',padding:'0 16px'},
+  sub:           {textAlign:'center' as const,fontSize:12,color:'#6b7280',marginBottom:6},
+  existing:      {textAlign:'center' as const,fontSize:13,color:'#374151',padding:'4px 16px',background:'#f3f4f6',borderRadius:6,margin:'0 16px 4px'},
+  navRow:        {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderTop:'1px solid #e5e7eb',backgroundColor:'#fff',marginTop:'auto'},
+  navBtn:        {background:'none',border:'1px solid #e5e7eb',borderRadius:8,padding:'7px 14px',fontSize:13,color:'#374151',cursor:'pointer'},
 }
 
 const s: Record<string, React.CSSProperties> = {
