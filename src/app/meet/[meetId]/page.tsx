@@ -13,10 +13,15 @@ interface Meet {
   clubs: { name: string; city: string | null; state: string | null } | { name: string; city: string | null; state: string | null }[]
 }
 
+// #2 — flat shape: no nested arrays, team_name/club_name/division_name come directly from the RPC
 interface MeetTeam {
-  id: string; status: string; division_id: string | null; confirmed_at: string | null
-  teams: { id: string; name: string; clubs: { name: string } | { name: string }[] } | { id: string; name: string; clubs: { name: string } | { name: string }[] }[]
-  meet_divisions: { name: string } | { name: string }[] | null
+  id: string
+  status: string
+  division_id: string | null
+  confirmed_at: string | null
+  team_name: string
+  club_name: string
+  division_name: string | null
 }
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
@@ -40,20 +45,6 @@ const NAV_ITEMS = [
   { key: 'standings', label: 'Meet Standings', suffix: '/standings' },
 ]
 
-function getTeamName(mt: MeetTeam): string {
-  const t = Array.isArray(mt.teams) ? mt.teams[0] : mt.teams
-  return t?.name || '—'
-}
-function getClubName(mt: MeetTeam): string {
-  const t = Array.isArray(mt.teams) ? mt.teams[0] : mt.teams
-  if (!t) return '—'
-  const c = Array.isArray(t.clubs) ? t.clubs[0] : t.clubs
-  return c?.name || '—'
-}
-function getDivisionName(mt: MeetTeam): string {
-  const d = Array.isArray(mt.meet_divisions) ? mt.meet_divisions[0] : mt.meet_divisions
-  return d?.name || '—'
-}
 function getHostClubName(meet: Meet): string {
   const c = Array.isArray(meet.clubs) ? meet.clubs[0] : meet.clubs
   return c?.name || '—'
@@ -76,44 +67,86 @@ export default function MeetDetailPage() {
   const [saving, setSaving] = useState(false)
   const [editForm, setEditForm] = useState({ name: '', meet_date: '', location: '', results_visibility: '' })
 
+  // #1 — logged-in user's club_id, looked up from public.users
+  const [userClubId, setUserClubId] = useState<string | null>(null)
+
   useEffect(() => {
     async function load() {
       setLoading(true)
+
+      // #1 — get auth user then fetch club_id from public.users
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: userData } = await supabase
+          .from('users')
+          .select('club_id')
+          .eq('id', user.id)
+          .single()
+        setUserClubId(userData?.club_id ?? null)
+      }
+
+      // fetch meet with host club name
       const { data: meetData, error: meetError } = await supabase
-        .from('meets').select('*, clubs (name, city, state)').eq('id', meetId).single()
+        .from('meets')
+        .select('*, clubs (name, city, state)')
+        .eq('id', meetId)
+        .single()
+
       if (meetError || !meetData) { setError('Meet not found.'); setLoading(false); return }
       setMeet(meetData as unknown as Meet)
-      setEditForm({ name: meetData.name, meet_date: meetData.meet_date, location: meetData.location || '', results_visibility: meetData.results_visibility })
+      setEditForm({
+        name: meetData.name,
+        meet_date: meetData.meet_date,
+        location: meetData.location || '',
+        results_visibility: meetData.results_visibility,
+      })
+
+      // #2 — use the RPC so team_name, club_name, division_name are flat fields
+      // — avoids Supabase implicit FK join ambiguity that was returning 'Team' fallback
       const { data: teamsData } = await supabase
-        .from('meet_teams')
-        .select('id, status, division_id, confirmed_at, teams (id, name, clubs (name)), meet_divisions (name)')
-        .eq('meet_id', meetId).order('status')
-      setMeetTeams((teamsData as unknown as MeetTeam[]) || [])
+        .rpc('get_meet_teams', { p_meet_id: meetId })
+
+      setMeetTeams(teamsData || [])
       setLoading(false)
     }
     if (meetId) load()
   }, [meetId])
 
+  // #1 — true only when the logged-in user belongs to the meet's host club
+  const isHost = meet !== null && userClubId !== null && userClubId === meet.host_club_id
+
   async function handleSaveEdit() {
     if (!meet) return
     setSaving(true)
     const { error: updateError } = await supabase.from('meets').update({
-      name: editForm.name.trim(), meet_date: editForm.meet_date,
-      location: editForm.location.trim() || null, results_visibility: editForm.results_visibility,
+      name: editForm.name.trim(),
+      meet_date: editForm.meet_date,
+      location: editForm.location.trim() || null,
+      results_visibility: editForm.results_visibility,
     }).eq('id', meetId)
     if (updateError) { alert('Failed to save. Please try again.'); setSaving(false); return }
     setMeet(prev => prev ? { ...prev, ...editForm, location: editForm.location || null } : prev)
-    setEditing(false); setSaving(false)
+    setEditing(false)
+    setSaving(false)
   }
 
   if (loading) return <div style={s.page}><div style={s.center}><div style={s.spinner}/></div></div>
-  if (error || !meet) return <div style={s.page}><div style={s.center}><p style={{color:'#dc2626'}}>{error||'Meet not found.'}</p><button onClick={()=>router.back()} style={s.linkBtn}>← Go back</button></div></div>
+  if (error || !meet) return (
+    <div style={s.page}>
+      <div style={s.center}>
+        <p style={{color:'#dc2626'}}>{error || 'Meet not found.'}</p>
+        <button onClick={()=>router.back()} style={s.linkBtn}>← Go back</button>
+      </div>
+    </div>
+  )
 
   const sc = STATUS_COLORS[meet.status] || STATUS_COLORS.setup
   const confirmed = meetTeams.filter(t => t.status === 'confirmed').length
   const declined  = meetTeams.filter(t => t.status === 'declined').length
   const fmtDate = (d: string) => new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'short',month:'long',day:'numeric',year:'numeric'})
-  const lineupDue = meet.lineup_due_date ? new Date(meet.lineup_due_date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : null
+  const lineupDue = meet.lineup_due_date
+    ? new Date(meet.lineup_due_date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    : null
   const lineupOverdue = meet.lineup_due_date && new Date(meet.lineup_due_date+'T00:00:00') < new Date() && confirmed > 0
 
   return (
@@ -139,17 +172,24 @@ export default function MeetDetailPage() {
               const href = `/meet/${meetId}${item.suffix}`
               const active = pathname === href
               return (
-                <button key={item.key} style={{...s.navItem,...(active?s.navActive:{})}} onClick={()=>router.push(href)}>
+                <button
+                  key={item.key}
+                  style={{...s.navItem, ...(active ? s.navActive : {})}}
+                  onClick={()=>router.push(href)}
+                >
                   {item.label}
                 </button>
               )
             })}
           </nav>
 
-          <div style={{marginTop:24,paddingTop:24,borderTop:'1px solid #e5e7eb',display:'flex',flexDirection:'column',gap:8}}>
-            <button style={s.sidebarBtn} onClick={()=>setEditing(true)}>✏️ Edit meet details</button>
-            <button style={s.sidebarBtn} onClick={()=>router.push(`/meet/new?meetId=${meetId}`)}>👥 Edit teams & divisions</button>
-          </div>
+          {/* #1 — host-only sidebar controls */}
+          {isHost && (
+            <div style={{marginTop:24,paddingTop:24,borderTop:'1px solid #e5e7eb',display:'flex',flexDirection:'column',gap:8}}>
+              <button style={s.sidebarBtn} onClick={()=>setEditing(true)}>✏️ Edit meet details</button>
+              <button style={s.sidebarBtn} onClick={()=>router.push(`/meet/new?meetId=${meetId}`)}>👥 Edit teams & divisions</button>
+            </div>
+          )}
         </aside>
 
         <main style={s.main}>
@@ -157,19 +197,27 @@ export default function MeetDetailPage() {
             <div style={s.overlay}>
               <div style={s.modal}>
                 <h2 style={s.modalTitle}>Edit meet details</h2>
-                <div style={s.field}><label style={s.label}>Meet Name</label>
-                  <input style={s.input} value={editForm.name} onChange={e=>setEditForm(p=>({...p,name:e.target.value}))}/></div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
-                  <div><label style={s.label}>Meet Date</label>
-                    <input type="date" style={s.input} value={editForm.meet_date} onChange={e=>setEditForm(p=>({...p,meet_date:e.target.value}))}/></div>
-                  <div><label style={s.label}>Location</label>
-                    <input style={s.input} value={editForm.location} placeholder="City, State" onChange={e=>setEditForm(p=>({...p,location:e.target.value}))}/></div>
+                <div style={s.field}>
+                  <label style={s.label}>Meet Name</label>
+                  <input style={s.input} value={editForm.name} onChange={e=>setEditForm(p=>({...p,name:e.target.value}))}/>
                 </div>
-                <div style={s.field}><label style={s.label}>Results Visibility</label>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+                  <div>
+                    <label style={s.label}>Meet Date</label>
+                    <input type="date" style={s.input} value={editForm.meet_date} onChange={e=>setEditForm(p=>({...p,meet_date:e.target.value}))}/>
+                  </div>
+                  <div>
+                    <label style={s.label}>Location</label>
+                    <input style={s.input} value={editForm.location} placeholder="City, State" onChange={e=>setEditForm(p=>({...p,location:e.target.value}))}/>
+                  </div>
+                </div>
+                <div style={s.field}>
+                  <label style={s.label}>Results Visibility</label>
                   <select style={s.input} value={editForm.results_visibility} onChange={e=>setEditForm(p=>({...p,results_visibility:e.target.value}))}>
                     <option value="after_finalized">After Finalized</option>
                     <option value="live">Live</option>
-                  </select></div>
+                  </select>
+                </div>
                 <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
                   <button style={s.cancelBtn} onClick={()=>setEditing(false)}>Cancel</button>
                   <button style={s.saveBtn} onClick={handleSaveEdit} disabled={saving}>{saving?'Saving...':'Save changes'}</button>
@@ -179,19 +227,21 @@ export default function MeetDetailPage() {
           )}
 
           {lineupOverdue && (
-            <div style={s.warning}>⚠️ Lineup due date ({lineupDue}) has passed — {confirmed} confirmed team{confirmed!==1?'s':''} still need to submit lineups.</div>
+            <div style={s.warning}>
+              ⚠️ Lineup due date ({lineupDue}) has passed — {confirmed} confirmed team{confirmed!==1?'s':''} still need to submit lineups.
+            </div>
           )}
 
           <div style={s.statsRow}>
             {[
-              {val:meetTeams.length,label:'Teams invited'},
-              {val:confirmed,label:'Confirmed',color:confirmed>0?'#16a34a':undefined},
-              {val:declined,label:'Declined',color:declined>0?'#dc2626':undefined},
-              {val:meet.num_judges??'—',label:'Judges'},
-              ...(lineupDue?[{val:lineupDue,label:'Lineup due',small:true}]:[]),
+              {val:meetTeams.length, label:'Teams invited'},
+              {val:confirmed, label:'Confirmed', color:confirmed>0?'#16a34a':undefined},
+              {val:declined,  label:'Declined',  color:declined>0?'#dc2626':undefined},
+              {val:meet.num_judges??'—', label:'Judges'},
+              ...(lineupDue?[{val:lineupDue, label:'Lineup due', small:true}]:[]),
             ].map((item,i)=>(
               <div key={i} style={s.statCard}>
-                <p style={{...s.statNum,...(item.color?{color:item.color}:{}),...((item as {small?:boolean}).small?{fontSize:15}:{})}}>{item.val}</p>
+                <p style={{...s.statNum, ...(item.color?{color:item.color}:{}), ...((item as {small?:boolean}).small?{fontSize:15}:{})}}>{item.val}</p>
                 <p style={s.statLabel}>{item.label}</p>
               </div>
             ))}
@@ -200,20 +250,24 @@ export default function MeetDetailPage() {
           <div style={s.card}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
               <h2 style={s.cardTitle}>Teams</h2>
-              <button style={s.linkBtn} onClick={()=>router.push(`/meet/new?meetId=${meetId}`)}>+ Manage teams</button>
+              {/* #1 — host-only */}
+              {isHost && (
+                <button style={s.linkBtn} onClick={()=>router.push(`/meet/new?meetId=${meetId}`)}>+ Manage teams</button>
+              )}
             </div>
             {meetTeams.length===0 ? (
               <p style={{textAlign:'center',color:'#9ca3af',fontSize:14,padding:'24px 0'}}>No teams added yet.</p>
             ) : (
               <>
                 <div style={s.tableHeader}><span>Team</span><span>Club</span><span>Division</span><span>Status</span></div>
-                {meetTeams.map(mt=>{
-                  const ts = TEAM_STATUS_COLORS[mt.status]||TEAM_STATUS_COLORS.pending
+                {meetTeams.map(mt => {
+                  const ts = TEAM_STATUS_COLORS[mt.status] || TEAM_STATUS_COLORS.pending
                   return (
                     <div key={mt.id} style={s.tableRow}>
-                      <span style={{fontSize:14,fontWeight:500,color:'#111827'}}>{getTeamName(mt)}</span>
-                      <span style={{fontSize:13,color:'#6b7280'}}>{getClubName(mt)}</span>
-                      <span style={{fontSize:13,color:'#6b7280'}}>{getDivisionName(mt)}</span>
+                      {/* #2 — flat fields, never undefined */}
+                      <span style={{fontSize:14,fontWeight:500,color:'#111827'}}>{mt.team_name || '—'}</span>
+                      <span style={{fontSize:13,color:'#6b7280'}}>{mt.club_name || '—'}</span>
+                      <span style={{fontSize:13,color:'#6b7280'}}>{mt.division_name || '—'}</span>
                       <span style={{...s.badge,backgroundColor:ts.bg,color:ts.color}}>{mt.status}</span>
                     </div>
                   )
@@ -225,7 +279,10 @@ export default function MeetDetailPage() {
           <div style={s.card}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
               <h2 style={s.cardTitle}>Meet details</h2>
-              <button style={s.linkBtn} onClick={()=>setEditing(true)}>Edit</button>
+              {/* #1 — host-only */}
+              {isHost && (
+                <button style={s.linkBtn} onClick={()=>setEditing(true)}>Edit</button>
+              )}
             </div>
             <div style={s.detailGrid}>
               {[
@@ -236,7 +293,7 @@ export default function MeetDetailPage() {
                 ['Results visibility', meet.results_visibility],
                 ['Counts for state', meet.counts_for_state?'Yes':'No'],
                 ['Hosted by', getHostClubName(meet)],
-                ...(lineupDue?[['Lineup due',lineupDue]]:[]),
+                ...(lineupDue?[['Lineup due', lineupDue]]:[]),
               ].map(([label,value])=>(
                 <div key={label as string}>
                   <p style={s.detailLabel}>{label}</p>
