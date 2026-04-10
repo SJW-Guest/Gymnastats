@@ -20,6 +20,7 @@ interface ScoreRow {
   gymnast_first_name: string
   gymnast_last_name: string
   team_name: string
+  division_name: string | null
   score_id: string | null
   vault: number | null;      vault_dnc: boolean
   bars: number | null;       bars_dnc: boolean
@@ -45,22 +46,17 @@ const NAV_ITEMS = [
   { key: 'standings', label: 'Meet Standings', suffix: '/standings' },
 ]
 
-// ─── Judge mobile numpad ───────────────────────────────────────────────────
+// ─── Judge mobile numpad ────────────────────────────────────────────────────
 function NumPad({ value, onChange, onConfirm, onDnc, isDnc, disabled }:
   { value: string; onChange: (v: string) => void; onConfirm: () => void; onDnc: (v: boolean) => void; isDnc: boolean; disabled: boolean }) {
   function tap(key: string) {
     if (disabled) return
     if (key === 'DEL') { onChange(value.slice(0, -1)); return }
-    if (key === '.') {
-      if (value.includes('.')) return
-      onChange(value + '.')
-      return
-    }
+    if (key === '.') { if (value.includes('.')) return; onChange(value + '.'); return }
     const next = value + key
     const num = parseFloat(next)
     if (!isNaN(num) && num <= 20) onChange(next)
   }
-
   return (
     <div style={np.wrap}>
       <div style={np.display}>
@@ -77,12 +73,8 @@ function NumPad({ value, onChange, onConfirm, onDnc, isDnc, disabled }:
         ))}
       </div>
       <div style={{display:'flex',gap:8,marginTop:8}}>
-        <button onClick={() => onDnc(!isDnc)} style={{...np.dncBtn, ...(isDnc?np.dncActive:{})}}>
-          DNC
-        </button>
-        <button onClick={onConfirm} disabled={!value && !isDnc} style={np.confirmBtn}>
-          Confirm ✓
-        </button>
+        <button onClick={() => onDnc(!isDnc)} style={{...np.dncBtn, ...(isDnc?np.dncActive:{})}}>DNC</button>
+        <button onClick={onConfirm} disabled={!value && !isDnc} style={np.confirmBtn}>Confirm ✓</button>
       </div>
     </div>
   )
@@ -100,7 +92,7 @@ const np: Record<string, React.CSSProperties> = {
   confirmBtn: {flex:2,height:48,borderRadius:10,border:'none',background:'#111827',color:'#fff',fontSize:15,fontWeight:600,cursor:'pointer'},
 }
 
-// ─── Main page ─────────────────────────────────────────────────────────────
+// ─── Main page ──────────────────────────────────────────────────────────────
 export default function ScoreEntryPage() {
   const { meetId } = useParams<{ meetId: string }>()
   const router = useRouter()
@@ -117,15 +109,13 @@ export default function ScoreEntryPage() {
   const [userClubId, setUserClubId] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
 
-  // Score table view state
   const [activeEvent, setActiveEvent] = useState<Event>('vault')
   const [filterTeamId, setFilterTeamId] = useState<string>('all')
-  const [edits, setEdits] = useState<Record<string, string>>({})  // gymnast_id -> string value
+  const [edits, setEdits] = useState<Record<string, string>>({})
   const [dncEdits, setDncEdits] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState<Set<string>>(new Set())
   const [saved, setSaved] = useState<Set<string>>(new Set())
 
-  // Judge mobile view state
   const [judgeMode, setJudgeMode] = useState(false)
   const [judgeEvent, setJudgeEvent] = useState<Event>('vault')
   const [judgeTeamId, setJudgeTeamId] = useState<string>('all')
@@ -143,13 +133,11 @@ export default function ScoreEntryPage() {
         setUserClubId(userData?.club_id ?? null)
         setUserRole(userData?.role ?? null)
       }
-
       const { data: meetData, error: meetError } = await supabase
         .from('meets').select('id, name, meet_date, location, status, host_club_id, num_judges')
         .eq('id', meetId).single()
       if (meetError || !meetData) { setError('Meet not found.'); setLoading(false); return }
       setMeet(meetData as Meet)
-
       const { data: scoreData } = await supabase.rpc('get_meet_score_rows', { p_meet_id: meetId })
       setRows(scoreData || [])
       setLoading(false)
@@ -159,13 +147,9 @@ export default function ScoreEntryPage() {
 
   const isHost = meet !== null && userClubId !== null && userClubId === meet.host_club_id
   const dashboardPath = userRole === 'maga_admin' ? '/maga/dashboard' : '/club/dashboard'
-
   const activeRows = rows.filter(r => r.lineup_status !== 'scratched')
   const teams = Array.from(new Map(activeRows.map(r => [r.team_id, r.team_name])).entries())
     .map(([id, name]) => ({ id, name }))
-
-  // ── Score table helpers ──────────────────────────────────────────────────
-  const tableRows = activeRows.filter(r => filterTeamId === 'all' || r.team_id === filterTeamId)
 
   function getDisplayVal(row: ScoreRow, event: Event): string {
     if (row.gymnast_id in edits && activeEvent === event) return edits[row.gymnast_id]
@@ -183,13 +167,8 @@ export default function ScoreEntryPage() {
     const rawVal = edits[gid]
     const dnc = dncEdits[gid] ?? (row[`${event}_dnc` as keyof ScoreRow] as boolean || false)
     const numVal = rawVal !== undefined ? (rawVal === '' ? null : parseFloat(rawVal)) : row[event as keyof ScoreRow] as number | null
-
     setSaving(prev => new Set(prev).add(gid))
-    const payload = {
-      meet_id: meetId, gymnast_id: gid, team_id: row.team_id, age_group: row.age_group,
-      [event]: numVal, [`${event}_dnc`]: dnc,
-    }
-
+    const payload = { meet_id: meetId, gymnast_id: gid, team_id: row.team_id, age_group: row.age_group, [event]: numVal, [`${event}_dnc`]: dnc }
     if (row.score_id) {
       await supabase.from('scores').update(payload).eq('id', row.score_id)
     } else {
@@ -201,7 +180,6 @@ export default function ScoreEntryPage() {
       }).select('id').single()
       if (ins) setRows(prev => prev.map(r => r.gymnast_id === gid ? { ...r, score_id: ins.id } : r))
     }
-
     setRows(prev => prev.map(r => r.gymnast_id === gid ? { ...r, [event]: numVal, [`${event}_dnc`]: dnc } : r))
     setEdits(prev => { const n = {...prev}; delete n[gid]; return n })
     setDncEdits(prev => { const n = {...prev}; delete n[gid]; return n })
@@ -214,18 +192,27 @@ export default function ScoreEntryPage() {
     return activeRows.filter(r => r[event as keyof ScoreRow] !== null || (r[`${event}_dnc` as keyof ScoreRow] as boolean)).length
   }
 
-  // ── Judge mode helpers ───────────────────────────────────────────────────
+  // ── Judge mode ──────────────────────────────────────────────────────────
   const judgeRows = activeRows.filter(r => judgeTeamId === 'all' || r.team_id === judgeTeamId)
   const currentJudgeRow = judgeRows[judgeIndex] ?? null
 
-  function judgeNext() {
-    setJudgeVal(''); setJudgeDnc(false)
-    setJudgeIndex(i => Math.min(i + 1, judgeRows.length - 1))
+  // ── Team rotation info for judge view ──
+  // For the current gymnast's team, how many are left after this gymnast (in running order)
+  function getTeamRotationInfo(row: ScoreRow): { scored: number; total: number; remaining: number } {
+    const teamRows = judgeRows.filter(r => r.team_id === row.team_id)
+      .sort((a, b) => a.running_order - b.running_order)
+    const currentIdx = teamRows.findIndex(r => r.gymnast_id === row.gymnast_id)
+    const scored = teamRows.filter(r => {
+      const score = r[judgeEvent as keyof ScoreRow] as number | null
+      const dnc = r[`${judgeEvent}_dnc` as keyof ScoreRow] as boolean
+      return score !== null || dnc
+    }).length
+    const remaining = teamRows.length - currentIdx - 1
+    return { scored, total: teamRows.length, remaining: Math.max(0, remaining) }
   }
-  function judgePrev() {
-    setJudgeVal(''); setJudgeDnc(false)
-    setJudgeIndex(i => Math.max(i - 1, 0))
-  }
+
+  function judgeNext() { setJudgeVal(''); setJudgeDnc(false); setJudgeIndex(i => Math.min(i + 1, judgeRows.length - 1)) }
+  function judgePrev() { setJudgeVal(''); setJudgeDnc(false); setJudgeIndex(i => Math.max(i - 1, 0)) }
 
   async function judgeConfirm() {
     if (!currentJudgeRow) return
@@ -259,7 +246,6 @@ export default function ScoreEntryPage() {
     judgeNext()
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────
   if (loading) return <div style={s.page}><div style={s.center}><div style={s.spinner}/></div></div>
   if (error || !meet) return (
     <div style={s.page}><div style={s.center}>
@@ -274,25 +260,23 @@ export default function ScoreEntryPage() {
   // ── JUDGE MODE ────────────────────────────────────────────────────────────
   if (judgeMode) {
     const row = currentJudgeRow
-    const progress = judgeRows.length > 0 ? ((judgeIndex) / judgeRows.length) * 100 : 0
+    const progress = judgeRows.length > 0 ? (judgeIndex / judgeRows.length) * 100 : 0
     const existingScore = row ? (row[judgeEvent as keyof ScoreRow] as number | null) : null
     const existingDnc = row ? (row[`${judgeEvent}_dnc` as keyof ScoreRow] as boolean) : false
+    const rotInfo = row ? getTeamRotationInfo(row) : null
 
     return (
       <div style={jm.page}>
-        {/* Judge top bar */}
         <div style={jm.topBar}>
           <button onClick={()=>setJudgeMode(false)} style={jm.backBtn}>← Score table</button>
           <span style={jm.title}>{meet.name}</span>
           <span style={{fontSize:13,color:'#9ca3af'}}>{judgeIndex + 1} / {judgeRows.length}</span>
         </div>
 
-        {/* Progress bar */}
         <div style={{height:3,background:'#e5e7eb'}}>
           <div style={{height:3,background:'#111827',width:`${progress}%`,transition:'width 0.3s'}}/>
         </div>
 
-        {/* Event selector */}
         <div style={jm.eventRow}>
           {EVENTS.map(ev => (
             <button key={ev}
@@ -304,7 +288,6 @@ export default function ScoreEntryPage() {
           ))}
         </div>
 
-        {/* Team filter */}
         {teams.length > 1 && (
           <div style={{padding:'0 16px 8px',overflowX:'auto',display:'flex',gap:8}}>
             <button onClick={()=>{setJudgeTeamId('all');setJudgeIndex(0)}}
@@ -318,12 +301,30 @@ export default function ScoreEntryPage() {
           </div>
         )}
 
-        {/* Gymnast card */}
         {row ? (
           <div style={jm.card}>
+            {/* ── Team indicator bar ── */}
+            <div style={jm.teamBar}>
+              <div style={jm.teamBarLeft}>
+                <span style={jm.teamBarName}>{row.team_name}</span>
+                {row.division_name && (
+                  <span style={jm.teamBarDivision}>{row.division_name}</span>
+                )}
+              </div>
+              <div style={jm.teamBarRight}>
+                {rotInfo && (
+                  <>
+                    <span style={jm.rotationNum}>{rotInfo.remaining}</span>
+                    <span style={jm.rotationLabel}>left in rotation</span>
+                  </>
+                )}
+              </div>
+            </div>
+
             <div style={jm.order}>#{row.running_order}</div>
             <div style={jm.name}>{row.gymnast_first_name} {row.gymnast_last_name}</div>
-            <div style={jm.sub}>{row.team_name} · {row.age_group}</div>
+            <div style={jm.sub}>{row.age_group}</div>
+
             {(existingScore !== null || existingDnc) && (
               <div style={jm.existing}>
                 Current: <strong>{existingDnc ? 'DNC' : existingScore}</strong>
@@ -342,7 +343,6 @@ export default function ScoreEntryPage() {
           <div style={{padding:32,textAlign:'center',color:'#9ca3af'}}>No gymnasts in this selection.</div>
         )}
 
-        {/* Prev / Next */}
         <div style={jm.navRow}>
           <button onClick={judgePrev} disabled={judgeIndex === 0} style={jm.navBtn}>← Prev</button>
           <span style={{fontSize:13,color:'#9ca3af'}}>{row?.gymnast_first_name} {row?.gymnast_last_name}</span>
@@ -353,7 +353,6 @@ export default function ScoreEntryPage() {
   }
 
   // ── SCORE TABLE VIEW ──────────────────────────────────────────────────────
-  // Group active rows by team in running order
   const teamGroups = teams
     .filter(t => filterTeamId === 'all' || t.id === filterTeamId)
     .map(t => ({
@@ -398,7 +397,6 @@ export default function ScoreEntryPage() {
         </aside>
 
         <main style={s.main}>
-          {/* Header row */}
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12}}>
             <div>
               <h1 style={s.pageTitle}>Score Entry</h1>
@@ -406,12 +404,9 @@ export default function ScoreEntryPage() {
                 {EVENTS.map(ev => `${EVENT_LABELS[ev]}: ${countEntered(ev)}/${activeRows.length}`).join(' · ')}
               </p>
             </div>
-            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-              <button onClick={()=>setJudgeMode(true)} style={s.judgeBtn}>📱 Judge view</button>
-            </div>
+            <button onClick={()=>setJudgeMode(true)} style={s.judgeBtn}>📱 Judge view</button>
           </div>
 
-          {/* Event tabs */}
           <div style={s.eventTabs}>
             {EVENTS.map(ev => (
               <button key={ev} onClick={()=>setActiveEvent(ev)}
@@ -424,7 +419,6 @@ export default function ScoreEntryPage() {
             ))}
           </div>
 
-          {/* Team filter pills */}
           {teams.length > 1 && (
             <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
               <button onClick={()=>setFilterTeamId('all')}
@@ -438,7 +432,6 @@ export default function ScoreEntryPage() {
             </div>
           )}
 
-          {/* Score table — grouped by team */}
           {activeRows.length === 0 ? (
             <div style={s.emptyState}>
               <p style={{fontSize:15,fontWeight:600,color:'#374151',margin:'0 0 4px'}}>No lineup available</p>
@@ -460,9 +453,7 @@ export default function ScoreEntryPage() {
                 </div>
 
                 <div style={st.header}>
-                  <span>#</span>
-                  <span>Gymnast</span>
-                  <span>Age group</span>
+                  <span>#</span><span>Gymnast</span><span>Age group</span>
                   <span style={{textAlign:'center'}}>{EVENT_LABELS[activeEvent]}</span>
                   <span style={{textAlign:'center'}}>DNC</span>
                   <span></span>
@@ -481,16 +472,10 @@ export default function ScoreEntryPage() {
                   return (
                     <div key={gid} style={{...st.row,...(alreadyEntered?st.enteredRow:{})}}>
                       <span style={{fontSize:13,color:'#9ca3af',fontWeight:500}}>{row.running_order}</span>
-                      <span style={{fontSize:14,fontWeight:500,color:'#111827'}}>
-                        {row.gymnast_first_name} {row.gymnast_last_name}
-                      </span>
+                      <span style={{fontSize:14,fontWeight:500,color:'#111827'}}>{row.gymnast_first_name} {row.gymnast_last_name}</span>
                       <span style={{fontSize:13,color:'#6b7280'}}>{row.age_group}</span>
                       <div style={{display:'flex',justifyContent:'center'}}>
-                        <input
-                          type="number"
-                          step="0.025"
-                          min="0"
-                          max="20"
+                        <input type="number" step="0.025" min="0" max="20"
                           disabled={dnc || !isHost}
                           value={dnc ? '' : displayVal}
                           placeholder={dnc ? 'DNC' : (existingScore !== null ? String(existingScore) : '—')}
@@ -506,14 +491,9 @@ export default function ScoreEntryPage() {
                         />
                       </div>
                       {isHost && (
-                        <button
-                          onClick={() => saveScore(row, activeEvent)}
-                          disabled={isSaving || (!hasEdit)}
-                          style={{...st.saveBtn,
-                            ...(isSaved?st.savedBtn:{}),
-                            ...(!hasEdit&&!isSaved?st.idleBtn:{})
-                          }}
-                        >
+                        <button onClick={() => saveScore(row, activeEvent)}
+                          disabled={isSaving || !hasEdit}
+                          style={{...st.saveBtn,...(isSaved?st.savedBtn:{}),...(!hasEdit&&!isSaved?st.idleBtn:{})}}>
                           {isSaving ? '…' : isSaved ? '✓' : alreadyEntered ? 'Update' : 'Save'}
                         </button>
                       )}
@@ -529,7 +509,6 @@ export default function ScoreEntryPage() {
   )
 }
 
-// ── Score table sub-styles ──────────────────────────────────────────────────
 const st: Record<string, React.CSSProperties> = {
   header:      {display:'grid',gridTemplateColumns:'36px 2fr 1fr 120px 60px 70px',gap:8,padding:'6px 8px',fontSize:11,fontWeight:600,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:2},
   row:         {display:'grid',gridTemplateColumns:'36px 2fr 1fr 120px 60px 70px',gap:8,padding:'10px 8px',borderRadius:8,alignItems:'center',borderBottom:'1px solid #f3f4f6'},
@@ -542,28 +521,34 @@ const st: Record<string, React.CSSProperties> = {
   idleBtn:     {backgroundColor:'#f3f4f6',color:'#9ca3af',cursor:'default'},
 }
 
-// ── Judge mode styles ───────────────────────────────────────────────────────
 const jm: Record<string, React.CSSProperties> = {
-  page:        {minHeight:'100vh',backgroundColor:'#f8f9fa',fontFamily:"'DM Sans', sans-serif",maxWidth:480,margin:'0 auto'},
-  topBar:      {backgroundColor:'#111827',padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'},
-  backBtn:     {background:'none',border:'1px solid #374151',borderRadius:6,color:'#9ca3af',padding:'5px 10px',fontSize:13,cursor:'pointer'},
-  title:       {color:'#fff',fontWeight:600,fontSize:14,flex:1,textAlign:'center',margin:'0 8px'},
-  eventRow:    {display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:0,borderBottom:'1px solid #e5e7eb',backgroundColor:'#fff'},
-  eventBtn:    {padding:'12px 4px',border:'none',background:'none',fontSize:13,fontWeight:500,color:'#6b7280',cursor:'pointer',borderBottom:'3px solid transparent',position:'relative' as const},
-  eventActive: {color:'#111827',borderBottomColor:'#111827'},
-  eventDone:   {position:'absolute' as const,top:6,right:6,fontSize:9,color:'#16a34a',fontWeight:700},
-  teamChip:    {padding:'6px 12px',borderRadius:99,border:'1px solid #e5e7eb',background:'#fff',fontSize:12,color:'#6b7280',cursor:'pointer',whiteSpace:'nowrap' as const},
-  teamChipActive:{backgroundColor:'#111827',color:'#fff',borderColor:'#111827'},
-  card:        {margin:'12px 16px',backgroundColor:'#fff',borderRadius:16,border:'1px solid #e5e7eb',overflow:'hidden'},
-  order:       {textAlign:'center' as const,fontSize:13,color:'#9ca3af',paddingTop:16},
-  name:        {textAlign:'center' as const,fontSize:22,fontWeight:700,color:'#111827',padding:'4px 16px 0'},
-  sub:         {textAlign:'center' as const,fontSize:13,color:'#6b7280',paddingBottom:8},
-  existing:    {textAlign:'center' as const,fontSize:13,color:'#374151',padding:'4px 16px',background:'#f8f9fa',margin:'0 16px',borderRadius:8},
-  navRow:      {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px'},
-  navBtn:      {background:'none',border:'1px solid #e5e7eb',borderRadius:8,padding:'8px 16px',fontSize:14,color:'#374151',cursor:'pointer'},
+  page:            {minHeight:'100vh',backgroundColor:'#f8f9fa',fontFamily:"'DM Sans', sans-serif",maxWidth:480,margin:'0 auto'},
+  topBar:          {backgroundColor:'#111827',padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'},
+  backBtn:         {background:'none',border:'1px solid #374151',borderRadius:6,color:'#9ca3af',padding:'5px 10px',fontSize:13,cursor:'pointer'},
+  title:           {color:'#fff',fontWeight:600,fontSize:14,flex:1,textAlign:'center',margin:'0 8px'},
+  eventRow:        {display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:0,borderBottom:'1px solid #e5e7eb',backgroundColor:'#fff'},
+  eventBtn:        {padding:'12px 4px',border:'none',background:'none',fontSize:13,fontWeight:500,color:'#6b7280',cursor:'pointer',borderBottom:'3px solid transparent',position:'relative' as const},
+  eventActive:     {color:'#111827',borderBottomColor:'#111827'},
+  eventDone:       {position:'absolute' as const,top:6,right:6,fontSize:9,color:'#16a34a',fontWeight:700},
+  teamChip:        {padding:'6px 12px',borderRadius:99,border:'1px solid #e5e7eb',background:'#fff',fontSize:12,color:'#6b7280',cursor:'pointer',whiteSpace:'nowrap' as const},
+  teamChipActive:  {backgroundColor:'#111827',color:'#fff',borderColor:'#111827'},
+  card:            {margin:'12px 16px',backgroundColor:'#fff',borderRadius:16,border:'1px solid #e5e7eb',overflow:'hidden'},
+  // ── team indicator bar ──
+  teamBar:         {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 16px',backgroundColor:'#f8f9fa',borderBottom:'1px solid #e5e7eb'},
+  teamBarLeft:     {display:'flex',flexDirection:'column' as const,gap:2},
+  teamBarName:     {fontSize:13,fontWeight:600,color:'#111827'},
+  teamBarDivision: {fontSize:11,color:'#6b7280'},
+  teamBarRight:    {display:'flex',flexDirection:'column' as const,alignItems:'flex-end',gap:1},
+  rotationNum:     {fontSize:20,fontWeight:700,color:'#111827',lineHeight:1},
+  rotationLabel:   {fontSize:10,color:'#9ca3af'},
+  order:           {textAlign:'center' as const,fontSize:13,color:'#9ca3af',paddingTop:16},
+  name:            {textAlign:'center' as const,fontSize:22,fontWeight:700,color:'#111827',padding:'4px 16px 0'},
+  sub:             {textAlign:'center' as const,fontSize:13,color:'#6b7280',paddingBottom:8},
+  existing:        {textAlign:'center' as const,fontSize:13,color:'#374151',padding:'4px 16px',background:'#f8f9fa',margin:'0 16px',borderRadius:8},
+  navRow:          {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px'},
+  navBtn:          {background:'none',border:'1px solid #e5e7eb',borderRadius:8,padding:'8px 16px',fontSize:14,color:'#374151',cursor:'pointer'},
 }
 
-// ── Main layout styles ──────────────────────────────────────────────────────
 const s: Record<string, React.CSSProperties> = {
   page:         {minHeight:'100vh',backgroundColor:'#f8f9fa',fontFamily:"'DM Sans', sans-serif"},
   center:       {display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:'100vh',gap:12},
