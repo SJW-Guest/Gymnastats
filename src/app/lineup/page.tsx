@@ -1,6 +1,6 @@
 // @ts-nocheck
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
@@ -18,7 +18,7 @@ interface LineupEntry {
 
 const SCRATCH_REASONS = ['injury', 'illness', 'no_show', 'other']
 
-export default function LineupPage() {
+function LineupPageInner() {
   const searchParams = useSearchParams()
   const [meets, setMeets] = useState<Meet[]>([])
   const [teams, setTeams] = useState<Team[]>([])
@@ -35,7 +35,6 @@ export default function LineupPage() {
   const [userName, setUserName] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [userClubId, setUserClubId] = useState<string | null>(null)
-  const [dragIdx, setDragIdx] = useState<number | null>(null)
 
   useEffect(() => {
     async function init() {
@@ -59,7 +58,6 @@ export default function LineupPage() {
       setMeets(m ?? [])
       setTeams(t ?? [])
 
-      // honour deep-link params from dashboard
       const paramMeetId = searchParams.get('meetId')
       const paramTeamId = searchParams.get('teamId')
       const firstMeet = paramMeetId ?? (m && m.length > 0 ? m[0].id : '')
@@ -150,8 +148,6 @@ export default function LineupPage() {
     const { createBrowserClient } = await import('@supabase/ssr')
     const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
     const { data: { user } } = await supabase.auth.getUser()
-
-    // save lineup first
     await supabase.from('meet_lineups').delete().eq('meet_id', selectedMeet).eq('team_id', selectedTeam)
     const rows = lineup.map(e => ({
       meet_id: selectedMeet, team_id: selectedTeam, gymnast_id: e.gymnast_id,
@@ -159,12 +155,9 @@ export default function LineupPage() {
       status: e.status, scratch_reason: e.scratch_reason ?? null,
     }))
     if (rows.length > 0) await supabase.from('meet_lineups').insert(rows)
-
-    // mark as submitted on meet_teams
     await supabase.from('meet_teams')
       .update({ lineup_submitted_at: new Date().toISOString(), lineup_submitted_by: user?.id ?? null })
       .eq('meet_id', selectedMeet).eq('team_id', selectedTeam)
-
     setLineupAlreadySubmitted(true)
     setSubmitting(false)
     setSubmitted(true)
@@ -310,51 +303,59 @@ export default function LineupPage() {
   )
 }
 
+export default function LineupPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'#888', fontFamily:'system-ui' }}>Loading...</div>}>
+      <LineupPageInner />
+    </Suspense>
+  )
+}
+
 const s: Record<string, React.CSSProperties> = {
-  page:          { minHeight:'100vh', background:'#f8f9fb', fontFamily:'system-ui,sans-serif' },
-  loading:       { minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'#888', fontFamily:'system-ui' },
-  nav:           { background:'#0a0f1e', padding:'0 1.5rem', height:'60px', display:'flex', alignItems:'center', justifyContent:'space-between' },
-  navLeft:       { display:'flex', alignItems:'center', gap:'16px' },
-  backBtn:       { background:'none', border:'1px solid #334155', color:'#94a3b8', padding:'5px 12px', borderRadius:'6px', cursor:'pointer', fontSize:'13px' },
-  navLogo:       { display:'flex', alignItems:'center', gap:'10px' },
-  logoMark:      { width:'32px', height:'32px', borderRadius:'8px', background:'#fff', color:'#0a0f1e', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'16px', fontWeight:'700', fontFamily:'Georgia,serif' },
-  logoText:      { color:'#fff', fontWeight:'600', fontSize:'16px' },
-  signOutBtn:    { background:'none', border:'1px solid #334155', color:'#94a3b8', padding:'5px 12px', borderRadius:'6px', cursor:'pointer', fontSize:'13px' },
-  main:          { maxWidth:'900px', margin:'0 auto', padding:'2rem 1rem' },
-  header:        { display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1.5rem', flexWrap:'wrap', gap:12 },
-  h1:            { fontSize:'28px', fontWeight:'700', color:'#0a0f1e', margin:'0 0 4px', letterSpacing:'-0.5px' },
-  h2:            { fontSize:'15px', fontWeight:'600', color:'#0a0f1e', margin:'0 0 1rem' },
-  sub:           { fontSize:'13px', color:'#64748b', margin:0 },
-  ghostBtn:      { background:'none', border:'1px solid #e5e7eb', color:'#374151', borderRadius:'8px', padding:'9px 18px', fontSize:'14px', cursor:'pointer', fontWeight:500 },
-  savedBtn:      { borderColor:'#10b981', color:'#10b981' },
-  submitBtn:     { background:'#0a0f1e', color:'#fff', border:'none', borderRadius:'8px', padding:'9px 18px', fontSize:'14px', cursor:'pointer', fontWeight:600 },
-  submittedTag:  { fontSize:'13px', color:'#16a34a', fontWeight:600, padding:'6px 12px', background:'#dcfce7', borderRadius:'8px' },
+  page:            { minHeight:'100vh', background:'#f8f9fb', fontFamily:'system-ui,sans-serif' },
+  loading:         { minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'#888', fontFamily:'system-ui' },
+  nav:             { background:'#0a0f1e', padding:'0 1.5rem', height:'60px', display:'flex', alignItems:'center', justifyContent:'space-between' },
+  navLeft:         { display:'flex', alignItems:'center', gap:'16px' },
+  backBtn:         { background:'none', border:'1px solid #334155', color:'#94a3b8', padding:'5px 12px', borderRadius:'6px', cursor:'pointer', fontSize:'13px' },
+  navLogo:         { display:'flex', alignItems:'center', gap:'10px' },
+  logoMark:        { width:'32px', height:'32px', borderRadius:'8px', background:'#fff', color:'#0a0f1e', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'16px', fontWeight:'700', fontFamily:'Georgia,serif' },
+  logoText:        { color:'#fff', fontWeight:'600', fontSize:'16px' },
+  signOutBtn:      { background:'none', border:'1px solid #334155', color:'#94a3b8', padding:'5px 12px', borderRadius:'6px', cursor:'pointer', fontSize:'13px' },
+  main:            { maxWidth:'900px', margin:'0 auto', padding:'2rem 1rem' },
+  header:          { display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1.5rem', flexWrap:'wrap', gap:12 },
+  h1:              { fontSize:'28px', fontWeight:'700', color:'#0a0f1e', margin:'0 0 4px', letterSpacing:'-0.5px' },
+  h2:              { fontSize:'15px', fontWeight:'600', color:'#0a0f1e', margin:'0 0 1rem' },
+  sub:             { fontSize:'13px', color:'#64748b', margin:0 },
+  ghostBtn:        { background:'none', border:'1px solid #e5e7eb', color:'#374151', borderRadius:'8px', padding:'9px 18px', fontSize:'14px', cursor:'pointer', fontWeight:500 },
+  savedBtn:        { borderColor:'#10b981', color:'#10b981' },
+  submitBtn:       { background:'#0a0f1e', color:'#fff', border:'none', borderRadius:'8px', padding:'9px 18px', fontSize:'14px', cursor:'pointer', fontWeight:600 },
+  submittedTag:    { fontSize:'13px', color:'#16a34a', fontWeight:600, padding:'6px 12px', background:'#dcfce7', borderRadius:'8px' },
   submittedBanner: { background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:'8px', padding:'10px 14px', fontSize:'13px', color:'#166534', marginBottom:'1rem' },
-  controls:      { display:'flex', gap:'1rem', marginBottom:'1rem', flexWrap:'wrap' },
-  field:         { display:'flex', flexDirection:'column', gap:'4px' },
-  label:         { fontSize:'12px', fontWeight:600, color:'#64748b', textTransform:'uppercase', letterSpacing:'0.04em' },
-  select:        { padding:'8px 10px', border:'1px solid #e5e7eb', borderRadius:'8px', fontSize:'14px', color:'#0a0f1e', background:'#fff', minWidth:'220px' },
-  alert:         { background:'#fffbeb', border:'1px solid #fde68a', borderRadius:'8px', padding:'10px 14px', fontSize:'13px', color:'#92400e', marginBottom:'1rem' },
-  card:          { background:'#fff', borderRadius:'12px', border:'0.5px solid #e5e7eb', overflow:'hidden', marginBottom:'1rem' },
-  cardHead:      { display:'grid', gridTemplateColumns:'40px 2fr 100px 1fr 100px', gap:'8px', padding:'10px 16px', background:'#f8f9fb', fontSize:'11px', fontWeight:600, color:'#64748b', textTransform:'uppercase', letterSpacing:'0.05em', borderBottom:'0.5px solid #e5e7eb' },
-  row:           { display:'grid', gridTemplateColumns:'40px 2fr 100px 1fr 100px', gap:'8px', padding:'11px 16px', borderBottom:'0.5px solid #f1f5f9', alignItems:'center' },
-  scratchedRow:  { background:'#fafafa' },
-  colNum:        { fontSize:'13px', color:'#94a3b8', fontWeight:500 },
-  colName:       { minWidth:0 },
-  colAge:        { fontSize:'13px', color:'#64748b' },
-  colStatus:     {},
-  colActions:    { display:'flex', gap:'4px', alignItems:'center' },
-  gymnName:      { fontSize:'14px', fontWeight:500, color:'#0a0f1e' },
-  scratchBadge:  { display:'flex', alignItems:'center', gap:'6px', fontSize:'11px', color:'#92400e', background:'#fffbeb', border:'1px solid #fde68a', padding:'3px 8px', borderRadius:'6px', fontWeight:600 },
-  undoBtn:       { background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:'11px', textDecoration:'underline' },
-  scratchSelect: { padding:'4px 8px', border:'1px solid #e5e7eb', borderRadius:'6px', fontSize:'12px', color:'#0a0f1e', background:'#fff' },
-  moveBtn:       { width:'28px', height:'28px', border:'1px solid #e5e7eb', borderRadius:'6px', background:'#fff', cursor:'pointer', fontSize:'14px', display:'flex', alignItems:'center', justifyContent:'center' },
-  removeBtn:     { width:'28px', height:'28px', border:'1px solid #fecaca', borderRadius:'6px', background:'#fef2f2', color:'#ef4444', cursor:'pointer', fontSize:'16px', display:'flex', alignItems:'center', justifyContent:'center' },
-  rosterCard:    { background:'#fff', borderRadius:'12px', border:'0.5px solid #e5e7eb', padding:'1.25rem' },
-  rosterGrid:    { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))', gap:'8px' },
-  rosterBtn:     { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 12px', border:'1px solid #e5e7eb', borderRadius:'8px', background:'#f8f9fb', cursor:'pointer', textAlign:'left' },
-  rosterName:    { fontSize:'13px', fontWeight:500, color:'#0a0f1e' },
-  rosterAge:     { fontSize:'11px', color:'#94a3b8' },
-  maxNote:       { fontSize:'12px', color:'#94a3b8', textAlign:'center', marginTop:'0.5rem' },
-  empty:         { padding:'2rem', textAlign:'center', color:'#94a3b8', fontSize:'14px' },
+  controls:        { display:'flex', gap:'1rem', marginBottom:'1rem', flexWrap:'wrap' },
+  field:           { display:'flex', flexDirection:'column', gap:'4px' },
+  label:           { fontSize:'12px', fontWeight:600, color:'#64748b', textTransform:'uppercase', letterSpacing:'0.04em' },
+  select:          { padding:'8px 10px', border:'1px solid #e5e7eb', borderRadius:'8px', fontSize:'14px', color:'#0a0f1e', background:'#fff', minWidth:'220px' },
+  alert:           { background:'#fffbeb', border:'1px solid #fde68a', borderRadius:'8px', padding:'10px 14px', fontSize:'13px', color:'#92400e', marginBottom:'1rem' },
+  card:            { background:'#fff', borderRadius:'12px', border:'0.5px solid #e5e7eb', overflow:'hidden', marginBottom:'1rem' },
+  cardHead:        { display:'grid', gridTemplateColumns:'40px 2fr 100px 1fr 100px', gap:'8px', padding:'10px 16px', background:'#f8f9fb', fontSize:'11px', fontWeight:600, color:'#64748b', textTransform:'uppercase', letterSpacing:'0.05em', borderBottom:'0.5px solid #e5e7eb' },
+  row:             { display:'grid', gridTemplateColumns:'40px 2fr 100px 1fr 100px', gap:'8px', padding:'11px 16px', borderBottom:'0.5px solid #f1f5f9', alignItems:'center' },
+  scratchedRow:    { background:'#fafafa' },
+  colNum:          { fontSize:'13px', color:'#94a3b8', fontWeight:500 },
+  colName:         { minWidth:0 },
+  colAge:          { fontSize:'13px', color:'#64748b' },
+  colStatus:       {},
+  colActions:      { display:'flex', gap:'4px', alignItems:'center' },
+  gymnName:        { fontSize:'14px', fontWeight:500, color:'#0a0f1e' },
+  scratchBadge:    { display:'flex', alignItems:'center', gap:'6px', fontSize:'11px', color:'#92400e', background:'#fffbeb', border:'1px solid #fde68a', padding:'3px 8px', borderRadius:'6px', fontWeight:600 },
+  undoBtn:         { background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:'11px', textDecoration:'underline' },
+  scratchSelect:   { padding:'4px 8px', border:'1px solid #e5e7eb', borderRadius:'6px', fontSize:'12px', color:'#0a0f1e', background:'#fff' },
+  moveBtn:         { width:'28px', height:'28px', border:'1px solid #e5e7eb', borderRadius:'6px', background:'#fff', cursor:'pointer', fontSize:'14px', display:'flex', alignItems:'center', justifyContent:'center' },
+  removeBtn:       { width:'28px', height:'28px', border:'1px solid #fecaca', borderRadius:'6px', background:'#fef2f2', color:'#ef4444', cursor:'pointer', fontSize:'16px', display:'flex', alignItems:'center', justifyContent:'center' },
+  rosterCard:      { background:'#fff', borderRadius:'12px', border:'0.5px solid #e5e7eb', padding:'1.25rem' },
+  rosterGrid:      { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))', gap:'8px' },
+  rosterBtn:       { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 12px', border:'1px solid #e5e7eb', borderRadius:'8px', background:'#f8f9fb', cursor:'pointer', textAlign:'left' },
+  rosterName:      { fontSize:'13px', fontWeight:500, color:'#0a0f1e' },
+  rosterAge:       { fontSize:'11px', color:'#94a3b8' },
+  maxNote:         { fontSize:'12px', color:'#94a3b8', textAlign:'center', marginTop:'0.5rem' },
+  empty:           { padding:'2rem', textAlign:'center', color:'#94a3b8', fontSize:'14px' },
 }
