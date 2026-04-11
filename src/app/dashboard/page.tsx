@@ -217,6 +217,10 @@ function MAGADashboardInner() {
                 {label}
               </button>
             ))}
+            <div style={{ borderTop: '1px solid #e5e7eb', margin: '8px 0' }} />
+            <button style={s.navItem} onClick={() => router.push('/maga/judges')}>
+              Judge Pool
+            </button>
           </nav>
         </aside>
 
