@@ -35,10 +35,11 @@ interface ParsedRow {
 }
 
 interface ImportRow {
-  first_name: string
-  last_name:  string
-  email:      string
-  phone:      string
+  first_name:   string
+  last_name:    string
+  email:        string
+  phone:        string
+  error_detail?: string
 }
 
 interface ImportResult {
@@ -627,6 +628,18 @@ export default function JudgePoolPage() {
                   </div>
                 </div>
 
+                {importResult.errors > 0 && importResult.errorRows.length > 0 && (
+                  <div style={s.errorDetailBox}>
+                    <p style={s.errorDetailTitle}>Error details</p>
+                    {importResult.errorRows.map((r, i) => (
+                      <div key={i} style={s.errorDetailRow}>
+                        <span style={s.errorDetailEmail}>{r.email}</span>
+                        <span style={s.errorDetailMsg}>{r.error_detail ?? 'Unknown error'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 24, flexWrap: 'wrap' }}>
                   {importResult.errors > 0 && importResult.errorRows.length > 0 && (
                     <button
@@ -745,9 +758,14 @@ const s: Record<string, React.CSSProperties> = {
   importingText:   { fontSize: 15, color: '#6b7280', margin: 0 },
 
   // Complete
-  completeIcon:    { fontSize: 40, textAlign: 'center' },
-  completeGrid:    { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 20 },
-  completeCard:    { backgroundColor: '#f9fafb', border: '1px solid #f3f4f6', borderRadius: 10, padding: 16, textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 4 },
-  completeNum:     { fontSize: 28, fontWeight: 700, color: '#111827' },
-  completeLabel:   { fontSize: 12, color: '#6b7280' },
+  completeIcon:     { fontSize: 40, textAlign: 'center' },
+  completeGrid:     { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 20 },
+  completeCard:     { backgroundColor: '#f9fafb', border: '1px solid #f3f4f6', borderRadius: 10, padding: 16, textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 4 },
+  completeNum:      { fontSize: 28, fontWeight: 700, color: '#111827' },
+  completeLabel:    { fontSize: 12, color: '#6b7280' },
+  errorDetailBox:   { marginTop: 20, border: '1px solid #fca5a5', borderRadius: 10, backgroundColor: '#fff7f7', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 },
+  errorDetailTitle: { fontSize: 12, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 },
+  errorDetailRow:   { display: 'flex', flexDirection: 'column', gap: 2, borderTop: '1px solid #fee2e2', paddingTop: 8 },
+  errorDetailEmail: { fontSize: 13, fontWeight: 600, color: '#111827' },
+  errorDetailMsg:   { fontSize: 12, color: '#dc2626', fontFamily: 'monospace', wordBreak: 'break-all' },
 }

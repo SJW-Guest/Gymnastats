@@ -6,10 +6,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
 interface ImportRow {
-  first_name: string
-  last_name:  string
-  email:      string
-  phone:      string
+  first_name:   string
+  last_name:    string
+  email:        string
+  phone:        string
+  error_detail?: string   // populated on failure, returned to client for debugging
 }
 
 interface RequestBody {
@@ -48,7 +49,8 @@ export async function POST(req: NextRequest) {
         })
 
       if (inviteError || !inviteData.user) {
-        errorRows.push(row)
+        console.error(`[judges/import] inviteUserByEmail failed for ${row.email}:`, inviteError)
+        errorRows.push({ ...row, error_detail: inviteError?.message ?? 'inviteUserByEmail returned no user' })
         continue
       }
 
@@ -65,7 +67,8 @@ export async function POST(req: NextRequest) {
       })
 
       if (userError) {
-        errorRows.push(row)
+        console.error(`[judges/import] users insert failed for ${row.email} (uid: ${userId}):`, userError)
+        errorRows.push({ ...row, error_detail: `users insert: ${userError.message} (code: ${userError.code})` })
         continue
       }
 
@@ -81,14 +84,17 @@ export async function POST(req: NextRequest) {
       })
 
       if (poolError) {
-        errorRows.push(row)
+        console.error(`[judges/import] judge_pool insert failed for ${row.email}:`, poolError)
+        errorRows.push({ ...row, error_detail: `judge_pool insert: ${poolError.message} (code: ${poolError.code})` })
         continue
       }
 
       created++
       emailed++
-    } catch {
-      errorRows.push(row)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`[judges/import] unexpected error for ${row.email}:`, err)
+      errorRows.push({ ...row, error_detail: `unexpected: ${message}` })
     }
   }
 
